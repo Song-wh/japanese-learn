@@ -294,13 +294,17 @@ body {
 }
 
 .quiz-char {
-  font-size: 10rem;
+  font-size: 12rem;
   font-family: 'Noto Sans JP', sans-serif;
   font-weight: 300;
   color: white;
-  text-shadow: 0 4px 20px rgba(233, 30, 99, 0.4);
-  line-height: 1.2;
-  margin: 1rem 0;
+  text-shadow: 0 4px 30px rgba(233, 30, 99, 0.5);
+  line-height: 1;
+  margin: 0.5rem 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
 }
 
 .quiz-sound-btn {
@@ -309,11 +313,19 @@ body {
   border-radius: 50%;
   background: var(--gradient);
   border: none;
-  font-size: 2rem;
   cursor: pointer;
   margin-top: 0.5rem;
   box-shadow: 0 4px 20px rgba(233, 30, 99, 0.4);
   transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quiz-sound-btn svg {
+  width: 32px;
+  height: 32px;
+  fill: white;
 }
 
 .quiz-sound-btn:active {
