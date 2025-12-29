@@ -18,7 +18,7 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '22'
+        node-version: '20'
         cache: 'npm'
         
     - name: Setup Java
@@ -36,16 +36,22 @@ jobs:
     - name: Build web app
       run: npm run build
       
+    - name: Install Capacitor CLI
+      run: npm install @capacitor/cli@6
+      
     - name: Sync Capacitor
       run: npx cap sync android
+      
+    - name: List android directory
+      run: ls -la android/
       
     - name: Make gradlew executable
       run: chmod +x android/gradlew
       
-    - name: Build APK
+    - name: Build APK with stacktrace
       run: |
         cd android
-        ./gradlew assembleDebug
+        ./gradlew assembleDebug --stacktrace
         
     - name: Upload APK
       uses: actions/upload-artifact@v4
@@ -53,4 +59,3 @@ jobs:
         name: japanese-learn-debug
         path: android/app/build/outputs/apk/debug/app-debug.apk
         retention-days: 30
-
