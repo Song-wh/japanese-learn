@@ -152,30 +152,19 @@ function Quiz({ type, onBack, refreshProgress }) {
           />
         </div>
 
-        {/* 문제 */}
-        <div className="card" style={{ textAlign: 'center' }}>
-          <p style={{ color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-            이 글자의 발음은?
-          </p>
-          <div className="char-display" style={{ fontSize: '6rem' }}>
-            {current.question.char}
-          </div>
-          
-          <button 
-            className="play-btn" 
-            onClick={playQuestionSound}
-            style={{ width: '60px', height: '60px' }}
-          >
-            <svg viewBox="0 0 24 24" style={{ width: '30px', height: '30px' }}>
-              <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
-            </svg>
+        {/* 문제 카드 */}
+        <div className="quiz-question-card">
+          <p className="quiz-subtitle">이 글자의 발음은?</p>
+          <div className="quiz-char">{current.question.char}</div>
+          <button className="quiz-sound-btn" onClick={playQuestionSound}>
+            🔊
           </button>
         </div>
 
-        {/* 선택지 */}
-        <div className="quiz-options">
+        {/* 선택지 - 2x2 그리드 */}
+        <div className="quiz-options-grid">
           {current.options.map((option, idx) => {
-            let className = 'quiz-option'
+            let className = 'quiz-option-btn'
             if (answered) {
               if (option.char === current.correctAnswer) {
                 className += ' correct'
@@ -185,30 +174,29 @@ function Quiz({ type, onBack, refreshProgress }) {
             }
             
             return (
-              <div 
+              <button 
                 key={idx}
                 className={className}
                 onClick={() => handleAnswer(option)}
+                disabled={answered}
               >
-                <div style={{ fontSize: '1.2rem', color: 'var(--accent)' }}>
-                  {option.romaji}
-                </div>
-              </div>
+                {option.romaji}
+              </button>
             )
           })}
         </div>
 
+        {/* 현재 점수 */}
+        <div className="quiz-score-display">
+          현재 점수: <strong>{score}</strong> / {currentIndex + (answered ? 1 : 0)}
+        </div>
+
         {/* 다음 버튼 */}
         {answered && (
-          <button className="btn" onClick={nextQuestion} style={{ width: '100%' }}>
+          <button className="quiz-next-btn" onClick={nextQuestion}>
             {currentIndex < QUESTION_COUNT - 1 ? '다음 문제 →' : '결과 보기 🎯'}
           </button>
         )}
-
-        {/* 현재 점수 */}
-        <div style={{ textAlign: 'center', marginTop: '2rem', color: 'var(--text-secondary)' }}>
-          현재 점수: <span style={{ color: 'var(--accent)', fontWeight: '700' }}>{score}</span> / {currentIndex + (answered ? 1 : 0)}
-        </div>
       </div>
     </div>
   )
