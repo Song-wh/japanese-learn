@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">일본어 학습</string>
+    <string name="title_activity_main">일본어 학습</string>
+    <string name="package_name">com.songwh.japaneselearn</string>
+    <string name="custom_url_scheme">com.songwh.japaneselearn</string>
+</resources>
