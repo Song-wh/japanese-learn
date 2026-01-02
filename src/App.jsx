@@ -14,21 +14,50 @@ import JlptWords from './components/JlptWords'
 import DailyGoal from './components/DailyGoal'
 import Writing from './components/Writing'
 import Restaurant from './components/Restaurant'
+import Kanji from './components/Kanji'
+import Travel from './components/Travel'
+import Statistics from './components/Statistics'
 import { loadProgress, updateStreak } from './utils/storage'
-import { loadVoices } from './utils/speech'
+import { initSpeech, speak } from './utils/speech'
 
 function App() {
   const [page, setPage] = useState('home')
   const [learnType, setLearnType] = useState('hiragana')
   const [progress, setProgress] = useState(null)
+  const [speechInitialized, setSpeechInitialized] = useState(false)
 
   useEffect(() => {
-    // 음성 로드
-    loadVoices()
+    // 음성 초기화
+    initSpeech().then(result => {
+      console.log('음성 초기화:', result ? '성공' : '실패 또는 미지원')
+    })
     
     // 진행 상태 로드 및 스트릭 업데이트
     const p = updateStreak()
     setProgress(p)
+
+    // 모바일에서 첫 터치 시 음성 초기화 (iOS Safari 요구사항)
+    const initOnFirstTouch = () => {
+      if (!speechInitialized) {
+        // 빈 음성 재생으로 오디오 컨텍스트 활성화
+        if (window.speechSynthesis) {
+          const utterance = new SpeechSynthesisUtterance('')
+          utterance.volume = 0
+          window.speechSynthesis.speak(utterance)
+        }
+        setSpeechInitialized(true)
+        document.removeEventListener('touchstart', initOnFirstTouch)
+        document.removeEventListener('click', initOnFirstTouch)
+      }
+    }
+
+    document.addEventListener('touchstart', initOnFirstTouch, { once: true })
+    document.addEventListener('click', initOnFirstTouch, { once: true })
+
+    return () => {
+      document.removeEventListener('touchstart', initOnFirstTouch)
+      document.removeEventListener('click', initOnFirstTouch)
+    }
   }, [])
 
   const navigate = (newPage, type = null) => {
@@ -87,6 +116,12 @@ function App() {
         return <Writing onBack={() => navigate('home')} />
       case 'restaurant':
         return <Restaurant onBack={() => navigate('home')} />
+      case 'kanji':
+        return <Kanji onBack={() => navigate('home')} />
+      case 'travel':
+        return <Travel onBack={() => navigate('home')} />
+      case 'statistics':
+        return <Statistics onBack={() => navigate('home')} />
       default:
         return <Home navigate={navigate} progress={progress} />
     }

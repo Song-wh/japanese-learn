@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { defaultRestaurants, categories, cities } from '../data/restaurants'
 import { getRestaurants, saveRestaurants, addRestaurant, deleteRestaurant, updateRestaurant } from '../utils/restaurantStorage'
+import CustomSelect from './CustomSelect'
 
 function Restaurant({ onBack }) {
   const [restaurants, setRestaurants] = useState([])
@@ -145,15 +146,17 @@ function Restaurant({ onBack }) {
         {/* 정렬 */}
         <div className="sort-row">
           <span className="result-count">{filteredRestaurants.length}개 맛집</span>
-          <select 
-            value={sortBy} 
-            onChange={(e) => setSortBy(e.target.value)}
-            className="sort-select"
-          >
-            <option value="rating">⭐ 평점순</option>
-            <option value="distance">📍 거리순</option>
-            <option value="name">가나다순</option>
-          </select>
+          <div className="sort-select-wrapper">
+            <CustomSelect
+              value={sortBy}
+              onChange={setSortBy}
+              options={[
+                { value: 'rating', label: '⭐ 평점순' },
+                { value: 'distance', label: '📍 거리순' },
+                { value: 'name', label: '가나다순' }
+              ]}
+            />
+          </div>
         </div>
       </div>
 
@@ -289,7 +292,119 @@ function Restaurant({ onBack }) {
   )
 }
 
-// 맛집 추가/수정 모달
+// 구글맵 URL에서 좌표 추출
+function parseGoogleMapsUrl(url) {
+  try {
+    // 패턴 1: @lat,lng 형태 (예: @35.6762,139.6503,17z)
+    const coordMatch = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/)
+    if (coordMatch) {
+      return {
+        lat: parseFloat(coordMatch[1]),
+        lng: parseFloat(coordMatch[2])
+      }
+    }
+
+    // 패턴 2: place/name/@lat,lng 형태
+    const placeMatch = url.match(/place\/[^\/]+\/@(-?\d+\.?\d*),(-?\d+\.?\d*)/)
+    if (placeMatch) {
+      return {
+        lat: parseFloat(placeMatch[1]),
+        lng: parseFloat(placeMatch[2])
+      }
+    }
+
+    // 패턴 3: ll=lat,lng 형태 (모바일 링크)
+    const llMatch = url.match(/ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/)
+    if (llMatch) {
+      return {
+        lat: parseFloat(llMatch[1]),
+        lng: parseFloat(llMatch[2])
+      }
+    }
+
+    // 패턴 4: q=lat,lng 형태
+    const qMatch = url.match(/[?&]q=(-?\d+\.?\d*),(-?\d+\.?\d*)/)
+    if (qMatch) {
+      return {
+        lat: parseFloat(qMatch[1]),
+        lng: parseFloat(qMatch[2])
+      }
+    }
+
+    // 패턴 5: !3d lat !4d lng 형태
+    const dataMatch = url.match(/!3d(-?\d+\.?\d*)!4d(-?\d+\.?\d*)/)
+    if (dataMatch) {
+      return {
+        lat: parseFloat(dataMatch[1]),
+        lng: parseFloat(dataMatch[2])
+      }
+    }
+
+    return null
+  } catch (e) {
+    console.error('URL 파싱 오류:', e)
+    return null
+  }
+}
+
+// 구글맵 URL에서 장소 정보 추출 (이름, 주소 등)
+function parseGoogleMapsInfo(url) {
+  const result = {
+    name: null,
+    nameJp: null,
+    address: null
+  }
+  
+  try {
+    // place/이름/ 형태에서 추출
+    // 예: /place/一蘭+渋谷店/@35.123,139.456
+    const placeMatch = url.match(/place\/([^\/\@]+)/)
+    if (placeMatch) {
+      const placeName = decodeURIComponent(placeMatch[1].replace(/\+/g, ' '))
+      
+      // 일본어가 포함되어 있으면 nameJp로
+      if (/[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/.test(placeName)) {
+        result.nameJp = placeName
+        
+        // 한국어 이름 자동 생성 시도 (일본어 그대로 사용)
+        // 사용자가 나중에 수정할 수 있음
+        result.name = placeName
+      } else {
+        result.name = placeName
+      }
+    }
+    
+    // 주소 추출 시도 (data= 파라미터에서)
+    // 예: data=!4m...!3m...!1s일본+도쿄도+시부야구...
+    const addressMatch = url.match(/!1s([^!]+)/)
+    if (addressMatch) {
+      const addr = decodeURIComponent(addressMatch[1].replace(/\+/g, ' '))
+      // 일본 주소 형태인지 확인
+      if (/[都道府県市区町村]/.test(addr) || addr.includes('Japan') || addr.includes('日本')) {
+        result.address = addr.replace(/^(일본|Japan|日本)\s*/i, '')
+      }
+    }
+    
+    // 검색어에서 주소 추출 시도
+    // 예: /search/도쿄+시부야...
+    if (!result.address) {
+      const searchMatch = url.match(/search\/([^\/\@]+)/)
+      if (searchMatch) {
+        const searchTerm = decodeURIComponent(searchMatch[1].replace(/\+/g, ' '))
+        if (/[都道府県市区町村]/.test(searchTerm)) {
+          result.address = searchTerm
+        }
+      }
+    }
+    
+    return result
+  } catch (e) {
+    console.error('URL 파싱 오류:', e)
+    return result
+  }
+}
+
+// 맛집 추가/수정 모달 (구글맵 검색 기능 추가)
 function AddRestaurantModal({ restaurant, onSave, onClose }) {
   const [form, setForm] = useState(restaurant || {
     name: '',
@@ -305,6 +420,11 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     memo: '',
     image: '🍜'
   })
+  
+  const [searchMode, setSearchMode] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [urlInput, setUrlInput] = useState('')
+  const [parseError, setParseError] = useState('')
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -321,6 +441,59 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     })
   }
 
+  // 구글맵에서 검색 열기
+  const openGoogleMapsSearch = () => {
+    const query = searchQuery || form.name || '일본 음식점'
+    const encodedQuery = encodeURIComponent(query)
+    window.open(`https://www.google.com/maps/search/${encodedQuery}`, '_blank')
+  }
+
+  // 구글맵 URL 파싱해서 데이터 가져오기
+  const handleParseUrl = () => {
+    setParseError('')
+    
+    if (!urlInput.includes('google.com/maps') && !urlInput.includes('goo.gl/maps') && !urlInput.includes('maps.app.goo.gl')) {
+      setParseError('구글맵 URL이 아닙니다. 구글맵에서 공유 > 링크 복사를 해주세요.')
+      return
+    }
+
+    const coords = parseGoogleMapsUrl(urlInput)
+    const info = parseGoogleMapsInfo(urlInput)
+
+    if (coords) {
+      // 추출된 정보로 폼 업데이트
+      const updates = {
+        lat: coords.lat,
+        lng: coords.lng
+      }
+      
+      // 이름이 비어있으면 추출된 이름 사용
+      if (info.name && !form.name) {
+        updates.name = info.name
+      }
+      if (info.nameJp && !form.nameJp) {
+        updates.nameJp = info.nameJp
+      }
+      if (info.address && !form.address) {
+        updates.address = info.address
+      }
+      
+      setForm(prev => ({ ...prev, ...updates }))
+      setSearchMode(false)
+      setUrlInput('')
+      
+      // 어떤 정보를 가져왔는지 알려주기
+      const extracted = []
+      if (coords) extracted.push('좌표')
+      if (info.nameJp) extracted.push('가게 이름')
+      if (info.address) extracted.push('주소')
+      
+      alert(`✅ ${extracted.join(', ')}를 가져왔습니다!${extracted.length < 3 ? '\n💡 나머지 정보는 직접 입력해주세요.' : ''}`)
+    } else {
+      setParseError('좌표를 찾을 수 없습니다. 구글맵에서 장소를 선택한 후 공유 > 링크 복사를 해주세요.')
+    }
+  }
+
   const categoryEmojis = {
     ramen: '🍜', sushi: '🍣', yakiniku: '🥓', katsu: '🥩',
     kushikatsu: '🍢', kaiseki: '🍱', izakaya: '🍶', cafe: '🍰', other: '🍴'
@@ -333,133 +506,235 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
           <h2>{restaurant ? '맛집 수정' : '🍜 맛집 추가'}</h2>
           <button className="close-btn" onClick={onClose}>×</button>
         </div>
-        <form onSubmit={handleSubmit} className="add-form">
-          <div className="form-group">
-            <label>가게 이름 *</label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={e => setForm({...form, name: e.target.value})}
-              placeholder="이치란 라멘"
-            />
-          </div>
-          <div className="form-group">
-            <label>일본어 이름</label>
-            <input
-              type="text"
-              value={form.nameJp}
-              onChange={e => setForm({...form, nameJp: e.target.value})}
-              placeholder="一蘭"
-            />
-          </div>
-          <div className="form-group">
-            <label>주소 (일본어) *</label>
-            <input
-              type="text"
-              value={form.address}
-              onChange={e => setForm({...form, address: e.target.value})}
-              placeholder="東京都渋谷区..."
-            />
-          </div>
-          <div className="form-row">
-            <div className="form-group half">
-              <label>도시</label>
-              <select 
-                value={form.city}
-                onChange={e => setForm({...form, city: e.target.value})}
+
+        {/* 구글맵 검색 모드 */}
+        {searchMode ? (
+          <div className="search-mode">
+            <div className="search-instructions">
+              <h3>📍 구글맵에서 장소 찾기</h3>
+              <ol>
+                <li>아래 검색어를 입력하고 "구글맵 열기" 클릭</li>
+                <li>구글맵에서 원하는 장소 선택</li>
+                <li>공유 버튼 클릭 → "링크 복사"</li>
+                <li>복사한 링크를 아래에 붙여넣기</li>
+              </ol>
+              <div style={{ 
+                marginTop: '0.8rem', 
+                padding: '0.6rem 0.8rem',
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                color: 'var(--text-secondary)'
+              }}>
+                <strong>자동 추출:</strong> 좌표, 가게 이름 (일본어), 주소<br/>
+                <span style={{ opacity: 0.7 }}>※ 영업시간, 전화번호는 직접 입력</span>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label>🔍 검색어 입력</label>
+              <div className="form-row">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="예: 이치란 라멘 도쿄"
+                  style={{ flex: 1 }}
+                />
+              </div>
+              <button 
+                type="button"
+                className="save-btn"
+                onClick={openGoogleMapsSearch}
+                style={{ width: '100%', marginTop: '0.8rem' }}
               >
-                {Object.entries(cities).filter(([k]) => k !== 'all').map(([key, city]) => (
-                  <option key={key} value={key}>{city.name}</option>
-                ))}
-              </select>
+                🗺️ 구글맵에서 검색
+              </button>
             </div>
-            <div className="form-group half">
-              <label>카테고리</label>
-              <select 
-                value={form.category}
-                onChange={e => setForm({
-                  ...form, 
-                  category: e.target.value,
-                  image: categoryEmojis[e.target.value] || '🍴'
-                })}
+
+            <div className="form-group">
+              <label>📋 구글맵 URL 붙여넣기</label>
+              <textarea
+                value={urlInput}
+                onChange={e => {
+                  setUrlInput(e.target.value)
+                  setParseError('')
+                }}
+                placeholder="구글맵에서 공유 버튼 → 링크 복사한 URL을 붙여넣기..."
+                rows={4}
+              />
+              {parseError && (
+                <p className="error-message">
+                  ⚠️ {parseError}
+                </p>
+              )}
+            </div>
+
+            <div className="form-actions">
+              <button type="button" className="cancel-btn" onClick={() => setSearchMode(false)}>
+                ← 돌아가기
+              </button>
+              <button 
+                type="button" 
+                className="save-btn"
+                onClick={handleParseUrl}
+                disabled={!urlInput}
               >
-                {Object.entries(categories).filter(([k]) => k !== 'all').map(([key, cat]) => (
-                  <option key={key} value={key}>{cat.icon} {cat.name}</option>
-                ))}
-              </select>
+                ✓ 좌표 가져오기
+              </button>
             </div>
           </div>
-          <div className="form-row">
-            <div className="form-group half">
-              <label>평점</label>
-              <input
-                type="number"
-                min="1"
-                max="5"
-                step="0.1"
-                value={form.rating}
-                onChange={e => setForm({...form, rating: e.target.value})}
-              />
-            </div>
-            <div className="form-group half">
-              <label>가격대</label>
-              <input
-                type="text"
-                value={form.priceRange}
-                onChange={e => setForm({...form, priceRange: e.target.value})}
-                placeholder="¥1000~2000"
-              />
-            </div>
-          </div>
-          <div className="form-group">
-            <label>영업시간</label>
-            <input
-              type="text"
-              value={form.hours}
-              onChange={e => setForm({...form, hours: e.target.value})}
-              placeholder="11:00-22:00"
-            />
-          </div>
-          <div className="form-group">
-            <label>메모</label>
-            <textarea
-              value={form.memo}
-              onChange={e => setForm({...form, memo: e.target.value})}
-              placeholder="추천 메뉴, 팁 등..."
-              rows={3}
-            />
-          </div>
-          <div className="form-group">
-            <label>좌표 (선택 - 구글맵에서 복사)</label>
-            <div className="form-row">
-              <input
-                type="text"
-                value={form.lat}
-                onChange={e => setForm({...form, lat: e.target.value})}
-                placeholder="위도 (35.xxxx)"
-                className="half"
-              />
-              <input
-                type="text"
-                value={form.lng}
-                onChange={e => setForm({...form, lng: e.target.value})}
-                placeholder="경도 (139.xxxx)"
-                className="half"
-              />
-            </div>
-          </div>
-          <div className="form-actions">
-            <button type="button" className="cancel-btn" onClick={onClose}>취소</button>
-            <button type="submit" className="save-btn">
-              {restaurant ? '수정' : '추가'}
+        ) : (
+          /* 일반 폼 모드 */
+          <form onSubmit={handleSubmit} className="add-form">
+            {/* 구글맵 검색 버튼 */}
+            <button
+              type="button"
+              className="google-maps-btn"
+              onClick={() => setSearchMode(true)}
+            >
+              🗺️ 구글맵에서 검색하기
             </button>
-          </div>
-        </form>
+
+            <div className="divider-text">
+              <span>또는 직접 입력</span>
+            </div>
+
+            <div className="form-group">
+              <label>가게 이름 *</label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={e => setForm({...form, name: e.target.value})}
+                placeholder="이치란 라멘"
+              />
+            </div>
+            <div className="form-group">
+              <label>일본어 이름</label>
+              <input
+                type="text"
+                value={form.nameJp}
+                onChange={e => setForm({...form, nameJp: e.target.value})}
+                placeholder="一蘭"
+              />
+            </div>
+            <div className="form-group">
+              <label>주소 (일본어) *</label>
+              <input
+                type="text"
+                value={form.address}
+                onChange={e => setForm({...form, address: e.target.value})}
+                placeholder="東京都渋谷区..."
+              />
+            </div>
+            <div className="form-row">
+              <div className="form-group half">
+                <label>도시</label>
+                <CustomSelect
+                  value={form.city}
+                  onChange={(val) => setForm({...form, city: val})}
+                  options={Object.entries(cities)
+                    .filter(([k]) => k !== 'all')
+                    .map(([key, city]) => ({ value: key, label: city.name }))}
+                />
+              </div>
+              <div className="form-group half">
+                <label>카테고리</label>
+                <CustomSelect
+                  value={form.category}
+                  onChange={(val) => setForm({
+                    ...form, 
+                    category: val,
+                    image: categoryEmojis[val] || '🍴'
+                  })}
+                  options={Object.entries(categories)
+                    .filter(([k]) => k !== 'all')
+                    .map(([key, cat]) => ({ value: key, label: `${cat.icon} ${cat.name}` }))}
+                />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group half">
+                <label>평점</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="5"
+                  step="0.1"
+                  value={form.rating}
+                  onChange={e => setForm({...form, rating: e.target.value})}
+                />
+              </div>
+              <div className="form-group half">
+                <label>가격대</label>
+                <input
+                  type="text"
+                  value={form.priceRange}
+                  onChange={e => setForm({...form, priceRange: e.target.value})}
+                  placeholder="¥1000~2000"
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>영업시간</label>
+              <input
+                type="text"
+                value={form.hours}
+                onChange={e => setForm({...form, hours: e.target.value})}
+                placeholder="11:00-22:00"
+              />
+            </div>
+            <div className="form-group">
+              <label>메모</label>
+              <textarea
+                value={form.memo}
+                onChange={e => setForm({...form, memo: e.target.value})}
+                placeholder="추천 메뉴, 팁 등..."
+                rows={3}
+              />
+            </div>
+
+            {/* 좌표 표시 */}
+            <div className="form-group coordinates-box">
+              <div className="coordinates-header">
+                <label>📍 위치 좌표</label>
+                <button
+                  type="button"
+                  className="link-btn"
+                  onClick={() => setSearchMode(true)}
+                >
+                  구글맵에서 가져오기 →
+                </button>
+              </div>
+              <div className="form-row">
+                <input
+                  type="text"
+                  value={form.lat}
+                  onChange={e => setForm({...form, lat: e.target.value})}
+                  placeholder="위도"
+                  className="half"
+                />
+                <input
+                  type="text"
+                  value={form.lng}
+                  onChange={e => setForm({...form, lng: e.target.value})}
+                  placeholder="경도"
+                  className="half"
+                />
+              </div>
+            </div>
+
+            <div className="form-actions">
+              <button type="button" className="cancel-btn" onClick={onClose}>취소</button>
+              <button type="submit" className="save-btn">
+                {restaurant ? '수정' : '추가'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   )
 }
 
 export default Restaurant
-
-

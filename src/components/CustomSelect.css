@@ -1,0 +1,118 @@
+/* 커스텀 셀렉트 박스 */
+.custom-select {
+  position: relative;
+  width: 100%;
+  font-size: 1rem;
+  outline: none;
+}
+
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  background: var(--bg-light);
+  border: 2px solid transparent;
+  border-radius: 12px;
+  padding: 0.9rem 1.1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-primary);
+}
+
+.custom-select.open .custom-select-trigger,
+.custom-select:focus .custom-select-trigger {
+  border-color: var(--primary);
+  background: rgba(233, 30, 99, 0.05);
+}
+
+.custom-select-value {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.custom-select-arrow {
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  transition: transform 0.3s ease;
+}
+
+.custom-select-arrow.up {
+  transform: rotate(180deg);
+}
+
+/* 옵션 드롭다운 */
+.custom-select-options {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 0.5rem;
+  max-height: 250px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  animation: dropdownSlide 0.2s ease;
+  
+  /* 스크롤바 숨기기 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.custom-select-options::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes dropdownSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 개별 옵션 */
+.custom-select-option {
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+
+.custom-select-option:hover,
+.custom-select-option.highlighted {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.custom-select-option.selected {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: white;
+  font-weight: 500;
+}
+
+.custom-select-option.selected.highlighted {
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  opacity: 0.9;
+}
+
+/* 모바일 터치 개선 */
+@media (hover: none) {
+  .custom-select-option {
+    padding: 1rem 1rem;
+  }
+  
+  .custom-select-option:active {
+    background: rgba(255, 255, 255, 0.15);
+  }
+}
+

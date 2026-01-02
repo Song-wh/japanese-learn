@@ -1,9 +1,11 @@
 import { hiragana } from '../data/hiragana'
 import { katakana } from '../data/katakana'
+import { kanjiData } from '../data/kanji'
 
 function Home({ navigate, progress }) {
   const hiraganaProgress = progress?.hiragana?.learned?.length || 0
   const katakanaProgress = progress?.katakana?.learned?.length || 0
+  const kanjiProgress = progress?.learnedKanji?.length || 0
   const streak = progress?.stats?.streak || 0
 
   return (
@@ -87,6 +89,24 @@ function Home({ navigate, progress }) {
             <div className="menu-info">
               <h3>JLPT N5</h3>
               <p>필수 단어 100+</p>
+            </div>
+          </div>
+
+          {/* 한자 학습 */}
+          <div className="menu-item" onClick={() => navigate('kanji')}>
+            <div className="menu-icon">漢</div>
+            <div className="menu-info">
+              <h3>한자 (N5)</h3>
+              <p>필수 한자 {kanjiData.length}자</p>
+              <div className="progress-bar" style={{ width: '120px', marginTop: '0.5rem' }}>
+                <div 
+                  className="progress-fill" 
+                  style={{ width: `${(kanjiProgress / kanjiData.length) * 100}%` }}
+                />
+              </div>
+            </div>
+            <div className="menu-progress">
+              <div className="value">{kanjiProgress}/{kanjiData.length}</div>
             </div>
           </div>
         </div>
@@ -175,6 +195,14 @@ function Home({ navigate, progress }) {
         <h2 style={{ fontSize: '1.1rem', color: 'var(--accent)', marginBottom: '1rem' }}>🗾 여행 & 맛집</h2>
         
         <div className="menu-grid">
+          <div className="menu-item" onClick={() => navigate('travel')}>
+            <div className="menu-icon">✈️</div>
+            <div className="menu-info">
+              <h3>여행 일본어</h3>
+              <p>상황별 필수 표현</p>
+            </div>
+          </div>
+
           <div className="menu-item" onClick={() => navigate('restaurant')}>
             <div className="menu-icon">🍜</div>
             <div className="menu-info">
@@ -189,17 +217,27 @@ function Home({ navigate, progress }) {
       <div style={{ marginTop: '1.5rem' }}>
         <h2 style={{ fontSize: '1.1rem', color: 'var(--accent)', marginBottom: '1rem' }}>🏆 성취</h2>
         
-        <div className="menu-item" onClick={() => navigate('daily')}>
-          <div className="menu-icon">🎖️</div>
-          <div className="menu-info">
-            <h3>일일 목표 & 배지</h3>
-            <p>성취도 확인 및 목표 설정</p>
-          </div>
-          {streak > 0 && (
-            <div className="menu-progress">
-              <div className="value">🔥 {streak}</div>
+        <div className="menu-grid">
+          <div className="menu-item" onClick={() => navigate('daily')}>
+            <div className="menu-icon">🎖️</div>
+            <div className="menu-info">
+              <h3>일일 목표 & 배지</h3>
+              <p>성취도 확인 및 목표 설정</p>
             </div>
-          )}
+            {streak > 0 && (
+              <div className="menu-progress">
+                <div className="value">🔥 {streak}</div>
+              </div>
+            )}
+          </div>
+
+          <div className="menu-item" onClick={() => navigate('statistics')}>
+            <div className="menu-icon">📊</div>
+            <div className="menu-info">
+              <h3>학습 통계</h3>
+              <p>주간 활동 & 진도 분석</p>
+            </div>
+          </div>
         </div>
       </div>
 
