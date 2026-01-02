@@ -50,3 +50,4 @@ export const hasJapaneseVoice = async () => {
   return voices.some(v => v.lang.includes('ja'));
 };
 
+

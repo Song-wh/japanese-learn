@@ -86,3 +86,4 @@ export const dakuonRows = {
   p: { name: 'P행 (반탁음)', chars: ['ぱ', 'ぴ', 'ぷ', 'ぺ', 'ぽ'] },
 };
 
+

@@ -84,3 +84,4 @@ export const hiraganaRows = {
   'n-single': { name: 'ん', chars: ['ん'] },
 };
 
+

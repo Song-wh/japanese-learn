@@ -151,3 +151,4 @@ export const getTotalJlptWords = () => {
   return Object.values(jlptN5).reduce((sum, cat) => sum + cat.words.length, 0);
 };
 
+

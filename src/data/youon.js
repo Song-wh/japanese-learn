@@ -117,3 +117,4 @@ export const youonRows = {
   py: { name: 'PY행', chars: ['ぴゃ', 'ぴゅ', 'ぴょ'] },
 };
 
+

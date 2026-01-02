@@ -170,6 +170,21 @@ function Home({ navigate, progress }) {
         </div>
       </div>
 
+      {/* 여행 & 맛집 */}
+      <div style={{ marginTop: '1.5rem' }}>
+        <h2 style={{ fontSize: '1.1rem', color: 'var(--accent)', marginBottom: '1rem' }}>🗾 여행 & 맛집</h2>
+        
+        <div className="menu-grid">
+          <div className="menu-item" onClick={() => navigate('restaurant')}>
+            <div className="menu-icon">🍜</div>
+            <div className="menu-info">
+              <h3>일본 맛집</h3>
+              <p>맛집 저장 & 구글맵 길찾기</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* 목표 & 배지 */}
       <div style={{ marginTop: '1.5rem' }}>
         <h2 style={{ fontSize: '1.1rem', color: 'var(--accent)', marginBottom: '1rem' }}>🏆 성취</h2>

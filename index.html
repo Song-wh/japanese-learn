@@ -2,12 +2,15 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link rel="manifest" href="/manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#1a1a2e" />
-    <meta name="description" content="매일 조금씩 배우는 일본어 학습 앱" />
+    <meta name="theme-color" content="#E91E63" />
+    <meta name="description" content="히라가나, 가타카나, 기초 단어를 쉽게 배우는 일본어 학습 앱" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="日本語" />
     <title>日本語 - 일본어 학습</title>
     <style>
       body {
@@ -19,5 +22,15 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // Service Worker 등록
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('SW registered'))
+            .catch(err => console.log('SW registration failed'));
+        });
+      }
+    </script>
   </body>
 </html>

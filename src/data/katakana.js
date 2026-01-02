@@ -84,3 +84,4 @@ export const katakanaRows = {
   'n-single': { name: 'ン', chars: ['ン'] },
 };
 
+

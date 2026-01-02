@@ -261,3 +261,4 @@ function Writing({ onBack }) {
 
 export default Writing
 
+

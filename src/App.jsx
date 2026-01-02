@@ -13,6 +13,7 @@ import Conversation from './components/Conversation'
 import JlptWords from './components/JlptWords'
 import DailyGoal from './components/DailyGoal'
 import Writing from './components/Writing'
+import Restaurant from './components/Restaurant'
 import { loadProgress, updateStreak } from './utils/storage'
 import { loadVoices } from './utils/speech'
 
@@ -84,6 +85,8 @@ function App() {
         return <DailyGoal onBack={() => navigate('home')} />
       case 'writing':
         return <Writing onBack={() => navigate('home')} />
+      case 'restaurant':
+        return <Restaurant onBack={() => navigate('home')} />
       default:
         return <Home navigate={navigate} progress={progress} />
     }
