@@ -444,6 +444,14 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
   }
 
   const [isExpanding, setIsExpanding] = useState(false)
+  const [debugLog, setDebugLog] = useState([])
+
+  // 디버그 로그 추가 함수
+  const addLog = (msg) => {
+    const time = new Date().toLocaleTimeString()
+    setDebugLog(prev => [...prev.slice(-10), `[${time}] ${msg}`])
+    console.log(msg)
+  }
 
   // 콜백 저장소
   const urlExpanderCallbacks = useRef({})
@@ -464,73 +472,68 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
 
   // 단축 URL 확장 함수
   const expandShortUrl = async (shortUrl) => {
-    console.log('=== expandShortUrl 시작 ===')
-    console.log('입력 URL:', shortUrl)
-    console.log('UrlExpander 존재:', !!window.UrlExpander)
+    addLog('=== URL 확장 시작 ===')
+    addLog('UrlExpander: ' + (window.UrlExpander ? '있음 ✅' : '없음 ❌'))
     
     // 방법 1: 네이티브 앱에서 URL 확장 (CORS 제한 없음)
     if (window.UrlExpander) {
-      // 네이티브 사용 가능 여부 확인
       try {
         const isAvailable = window.UrlExpander.isAvailable()
-        console.log('네이티브 isAvailable:', isAvailable)
+        addLog('네이티브 사용가능: ' + isAvailable)
       } catch (e) {
-        console.log('isAvailable 호출 실패:', e)
+        addLog('isAvailable 오류: ' + e.message)
       }
       
       return new Promise((resolve) => {
-        const callbackId = 'cb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
-        console.log('콜백 ID:', callbackId)
+        const callbackId = 'cb_' + Date.now()
+        addLog('콜백ID: ' + callbackId)
         
         urlExpanderCallbacks.current[callbackId] = (expandedUrl) => {
-          console.log('✅ 콜백 받음:', expandedUrl)
-          // 어떤 URL이든 받으면 일단 사용
+          addLog('✅ 콜백 받음!')
+          addLog('결과: ' + (expandedUrl ? expandedUrl.substring(0, 50) + '...' : '없음'))
           if (expandedUrl && expandedUrl.length > 0) {
             resolve(expandedUrl)
           } else {
-            console.log('빈 URL 받음')
             resolve(null)
           }
         }
         
-        // 15초 타임아웃
-        const timeoutId = setTimeout(() => {
+        setTimeout(() => {
           if (urlExpanderCallbacks.current[callbackId]) {
-            console.log('⏰ 타임아웃 발생 (15초)')
+            addLog('⏰ 타임아웃!')
             delete urlExpanderCallbacks.current[callbackId]
             resolve(null)
           }
         }, 15000)
         
         try {
-          console.log('네이티브 expandUrl 호출 중...')
+          addLog('네이티브 호출 중...')
           window.UrlExpander.expandUrl(shortUrl, callbackId)
-          console.log('네이티브 호출 완료')
+          addLog('호출 완료, 응답 대기...')
         } catch (e) {
-          console.error('❌ 네이티브 호출 오류:', e)
-          clearTimeout(timeoutId)
-          delete urlExpanderCallbacks.current[callbackId]
+          addLog('❌ 오류: ' + e.message)
           resolve(null)
         }
       })
     } else {
-      console.log('UrlExpander 없음 - 웹 환경')
+      addLog('웹 환경 - CORS 프록시 사용')
     }
 
     // 방법 2: 웹 환경 - CORS 프록시 사용
-    console.log('CORS 프록시 시도 중...')
+    addLog('CORS 프록시 시도...')
     try {
       const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`)
       const data = await response.json()
       if (data.contents) {
         const mapsUrlMatch = data.contents.match(/https:\/\/(www\.)?google\.(com|co\.\w+)\/maps[^"'\s<>]*/i)
         if (mapsUrlMatch) {
-          console.log('CORS 프록시 성공:', mapsUrlMatch[0])
+          addLog('CORS 성공!')
           return mapsUrlMatch[0]
         }
       }
+      addLog('CORS: URL 못찾음')
     } catch (e) {
-      console.log('CORS proxy failed:', e)
+      addLog('CORS 실패: ' + e.message)
     }
 
     return null
@@ -688,6 +691,28 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
                 <p style={{ color: 'var(--primary)', marginTop: '0.5rem', textAlign: 'center' }}>
                   ⏳ 단축 URL 확장 중...
                 </p>
+              )}
+              
+              {/* 디버그 로그 표시 */}
+              {debugLog.length > 0 && (
+                <div style={{
+                  marginTop: '0.5rem',
+                  padding: '0.5rem',
+                  background: '#1a1a2e',
+                  borderRadius: '6px',
+                  fontSize: '0.7rem',
+                  fontFamily: 'monospace',
+                  maxHeight: '150px',
+                  overflow: 'auto',
+                  color: '#0f0'
+                }}>
+                  <div style={{ marginBottom: '0.3rem', color: '#888' }}>📋 디버그 로그:</div>
+                  {debugLog.map((log, i) => (
+                    <div key={i} style={{ color: log.includes('❌') || log.includes('오류') ? '#f66' : log.includes('✅') ? '#6f6' : '#aaa' }}>
+                      {log}
+                    </div>
+                  ))}
+                </div>
               )}
               {parseError && (
                 <div className="error-message" style={{ marginTop: '0.5rem' }}>
