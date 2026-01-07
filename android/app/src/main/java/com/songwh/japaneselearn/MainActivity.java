@@ -1,6 +1,8 @@
 package com.songwh.japaneselearn;
 
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
@@ -11,55 +13,89 @@ import java.net.URL;
 public class MainActivity extends BridgeActivity {
     
     private static final String TAG = "UrlExpander";
+    private Handler mainHandler = new Handler(Looper.getMainLooper());
     
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    public void onStart() {
+        super.onStart();
         
-        // WebView 로드 후 JavaScript Interface 추가
-        getBridge().getWebView().post(() -> {
-            WebView webView = getBridge().getWebView();
-            webView.addJavascriptInterface(new UrlExpander(), "UrlExpander");
-            Log.d(TAG, "UrlExpander JavaScript Interface 등록됨");
-        });
+        // 여러 번 시도하여 JavaScript Interface 등록
+        registerJsInterface();
+    }
+    
+    private void registerJsInterface() {
+        mainHandler.postDelayed(() -> {
+            try {
+                WebView webView = getBridge().getWebView();
+                if (webView != null) {
+                    webView.addJavascriptInterface(new UrlExpander(), "UrlExpander");
+                    Log.d(TAG, "✅ UrlExpander JavaScript Interface 등록 성공!");
+                    
+                    // JavaScript에 등록 완료 알림
+                    webView.evaluateJavascript(
+                        "console.log('UrlExpander 등록됨:', typeof window.UrlExpander);",
+                        null
+                    );
+                } else {
+                    Log.e(TAG, "WebView가 null입니다. 재시도...");
+                    mainHandler.postDelayed(this::registerJsInterface, 500);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "등록 실패: " + e.getMessage());
+                mainHandler.postDelayed(this::registerJsInterface, 500);
+            }
+        }, 1000);
     }
     
     // URL 확장을 위한 JavaScript Interface
     public class UrlExpander {
         
         @JavascriptInterface
+        public String expandUrlSync(String shortUrl) {
+            Log.d(TAG, "expandUrlSync 호출: " + shortUrl);
+            String result = resolveUrlRecursive(shortUrl, 10);
+            Log.d(TAG, "expandUrlSync 결과: " + result);
+            return result != null ? result : "";
+        }
+        
+        @JavascriptInterface
         public void expandUrl(String shortUrl, String callbackId) {
-            Log.d(TAG, "expandUrl 호출됨: " + shortUrl);
+            Log.d(TAG, "expandUrl 호출: " + shortUrl + ", callback: " + callbackId);
             
             new Thread(() -> {
                 String expandedUrl = resolveUrlRecursive(shortUrl, 10);
-                Log.d(TAG, "최종 URL: " + expandedUrl);
+                Log.d(TAG, "확장 결과: " + expandedUrl);
                 
-                // 결과를 JavaScript로 전달
-                runOnUiThread(() -> {
-                    WebView webView = getBridge().getWebView();
-                    String safeUrl = expandedUrl != null ? 
-                        expandedUrl.replace("\\", "\\\\").replace("'", "\\'") : "";
-                    String jsCallback = String.format(
-                        "if(window.urlExpanderCallback) window.urlExpanderCallback('%s', '%s')",
-                        callbackId,
-                        safeUrl
-                    );
-                    Log.d(TAG, "JS 콜백 실행: " + jsCallback);
-                    webView.evaluateJavascript(jsCallback, null);
+                mainHandler.post(() -> {
+                    try {
+                        WebView webView = getBridge().getWebView();
+                        String safeUrl = expandedUrl != null ? 
+                            expandedUrl.replace("\\", "\\\\").replace("'", "\\'").replace("\n", "") : "";
+                        String jsCallback = "if(window.urlExpanderCallback){window.urlExpanderCallback('" + 
+                            callbackId + "','" + safeUrl + "');}";
+                        Log.d(TAG, "JS 콜백: " + jsCallback);
+                        webView.evaluateJavascript(jsCallback, null);
+                    } catch (Exception e) {
+                        Log.e(TAG, "콜백 실행 오류: " + e.getMessage());
+                    }
                 });
             }).start();
         }
         
+        @JavascriptInterface
+        public boolean isAvailable() {
+            Log.d(TAG, "isAvailable 호출됨");
+            return true;
+        }
+        
         private String resolveUrlRecursive(String urlStr, int maxRedirects) {
-            if (maxRedirects <= 0) {
-                Log.d(TAG, "최대 리다이렉션 도달: " + urlStr);
+            if (maxRedirects <= 0 || urlStr == null) {
                 return urlStr;
             }
             
             HttpURLConnection connection = null;
             try {
-                Log.d(TAG, "URL 요청: " + urlStr + " (남은 리다이렉션: " + maxRedirects + ")");
+                Log.d(TAG, "URL 요청: " + urlStr);
                 
                 URL url = new URL(urlStr);
                 connection = (HttpURLConnection) url.openConnection();
@@ -67,25 +103,18 @@ public class MainActivity extends BridgeActivity {
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(10000);
                 connection.setReadTimeout(10000);
-                
-                // 브라우저처럼 보이도록 User-Agent 설정
                 connection.setRequestProperty("User-Agent", 
-                    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-                connection.setRequestProperty("Accept", 
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-                
+                    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36");
                 connection.connect();
                 
                 int responseCode = connection.getResponseCode();
-                Log.d(TAG, "응답 코드: " + responseCode);
+                Log.d(TAG, "응답: " + responseCode);
                 
-                // 리다이렉션 응답
                 if (responseCode >= 300 && responseCode < 400) {
                     String location = connection.getHeaderField("Location");
-                    Log.d(TAG, "Location 헤더: " + location);
+                    Log.d(TAG, "Location: " + location);
                     
                     if (location != null && !location.isEmpty()) {
-                        // 상대 경로인 경우 절대 경로로 변환
                         if (!location.startsWith("http")) {
                             location = new URL(url, location).toString();
                         }
@@ -93,13 +122,9 @@ public class MainActivity extends BridgeActivity {
                     }
                 }
                 
-                // 200 OK 또는 리다이렉션 끝
-                Log.d(TAG, "최종 도달 URL: " + urlStr);
                 return urlStr;
-                
             } catch (Exception e) {
-                Log.e(TAG, "URL 처리 오류: " + e.getMessage());
-                e.printStackTrace();
+                Log.e(TAG, "오류: " + e.getMessage());
                 return urlStr;
             } finally {
                 if (connection != null) {

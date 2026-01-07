@@ -464,55 +464,65 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
 
   // 단축 URL 확장 함수
   const expandShortUrl = async (shortUrl) => {
-    console.log('expandShortUrl 시작:', shortUrl)
+    console.log('=== expandShortUrl 시작 ===')
+    console.log('입력 URL:', shortUrl)
     console.log('UrlExpander 존재:', !!window.UrlExpander)
     
     // 방법 1: 네이티브 앱에서 URL 확장 (CORS 제한 없음)
     if (window.UrlExpander) {
+      // 네이티브 사용 가능 여부 확인
+      try {
+        const isAvailable = window.UrlExpander.isAvailable()
+        console.log('네이티브 isAvailable:', isAvailable)
+      } catch (e) {
+        console.log('isAvailable 호출 실패:', e)
+      }
+      
       return new Promise((resolve) => {
-        const callbackId = 'cb_' + Date.now()
+        const callbackId = 'cb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
         console.log('콜백 ID:', callbackId)
         
         urlExpanderCallbacks.current[callbackId] = (expandedUrl) => {
-          console.log('콜백 받음:', expandedUrl)
-          // google.com/maps 또는 maps.google.com 체크
-          if (expandedUrl && (expandedUrl.includes('google.com/maps') || expandedUrl.includes('maps.google.com'))) {
-            resolve(expandedUrl)
-          } else if (expandedUrl && expandedUrl.includes('@')) {
-            // 좌표가 포함된 URL이면 일단 반환
+          console.log('✅ 콜백 받음:', expandedUrl)
+          // 어떤 URL이든 받으면 일단 사용
+          if (expandedUrl && expandedUrl.length > 0) {
             resolve(expandedUrl)
           } else {
-            console.log('유효하지 않은 URL:', expandedUrl)
+            console.log('빈 URL 받음')
             resolve(null)
           }
         }
         
-        // 10초 타임아웃
-        setTimeout(() => {
+        // 15초 타임아웃
+        const timeoutId = setTimeout(() => {
           if (urlExpanderCallbacks.current[callbackId]) {
-            console.log('타임아웃 발생')
+            console.log('⏰ 타임아웃 발생 (15초)')
             delete urlExpanderCallbacks.current[callbackId]
             resolve(null)
           }
-        }, 10000)
+        }, 15000)
         
         try {
+          console.log('네이티브 expandUrl 호출 중...')
           window.UrlExpander.expandUrl(shortUrl, callbackId)
           console.log('네이티브 호출 완료')
         } catch (e) {
-          console.error('네이티브 호출 오류:', e)
+          console.error('❌ 네이티브 호출 오류:', e)
+          clearTimeout(timeoutId)
+          delete urlExpanderCallbacks.current[callbackId]
           resolve(null)
         }
       })
+    } else {
+      console.log('UrlExpander 없음 - 웹 환경')
     }
 
     // 방법 2: 웹 환경 - CORS 프록시 사용
-    console.log('웹 환경 - CORS 프록시 사용')
+    console.log('CORS 프록시 시도 중...')
     try {
       const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`)
       const data = await response.json()
       if (data.contents) {
-        // 다양한 Google Maps URL 패턴 매칭
         const mapsUrlMatch = data.contents.match(/https:\/\/(www\.)?google\.(com|co\.\w+)\/maps[^"'\s<>]*/i)
         if (mapsUrlMatch) {
           console.log('CORS 프록시 성공:', mapsUrlMatch[0])
