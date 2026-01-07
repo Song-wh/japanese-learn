@@ -443,6 +443,66 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     window.open(`https://www.google.com/maps/search/${encodedQuery}`, '_blank')
   }
 
+  const [isExpanding, setIsExpanding] = useState(false)
+
+  // 단축 URL 확장 함수
+  const expandShortUrl = async (shortUrl) => {
+    // 방법 1: unshorten.me API
+    try {
+      const response = await fetch(`https://unshorten.me/json/${encodeURIComponent(shortUrl)}`)
+      const data = await response.json()
+      if (data.resolved_url && data.resolved_url.includes('google.com/maps')) {
+        return data.resolved_url
+      }
+    } catch (e) {
+      console.log('unshorten.me failed:', e)
+    }
+
+    // 방법 2: allorigins로 HTML 가져와서 파싱
+    try {
+      const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`)
+      const data = await response.json()
+      if (data.contents) {
+        // HTML에서 og:url 메타 태그 추출
+        const ogUrlMatch = data.contents.match(/property="og:url"\s+content="([^"]+)"/)
+        if (ogUrlMatch && ogUrlMatch[1].includes('google.com/maps')) {
+          return ogUrlMatch[1]
+        }
+        // canonical URL 추출
+        const canonicalMatch = data.contents.match(/rel="canonical"\s+href="([^"]+)"/)
+        if (canonicalMatch && canonicalMatch[1].includes('google.com/maps')) {
+          return canonicalMatch[1]
+        }
+        // 좌표가 포함된 URL 직접 추출
+        const mapsUrlMatch = data.contents.match(/https:\/\/www\.google\.com\/maps\/place\/[^"'\s]+@-?\d+\.\d+,-?\d+\.\d+[^"'\s]*/i)
+        if (mapsUrlMatch) {
+          return mapsUrlMatch[0]
+        }
+        // data-url 속성에서 추출
+        const dataUrlMatch = data.contents.match(/data-url="([^"]*google\.com\/maps[^"]*)"/i)
+        if (dataUrlMatch) {
+          return dataUrlMatch[1]
+        }
+      }
+    } catch (e) {
+      console.log('allorigins failed:', e)
+    }
+
+    // 방법 3: corsproxy.io
+    try {
+      const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(shortUrl)}`)
+      const html = await response.text()
+      const mapsUrlMatch = html.match(/https:\/\/www\.google\.com\/maps\/place\/[^"'\s]+@-?\d+\.\d+,-?\d+\.\d+[^"'\s]*/i)
+      if (mapsUrlMatch) {
+        return mapsUrlMatch[0]
+      }
+    } catch (e) {
+      console.log('corsproxy.io failed:', e)
+    }
+
+    return null
+  }
+
   // 구글맵 URL 파싱해서 데이터 가져오기
   const handleParseUrl = async () => {
     setParseError('')
@@ -452,16 +512,35 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       return
     }
 
-    // 단축 URL인 경우 바로 안내
+    let urlToParse = urlInput
+
+    // 단축 URL인 경우 확장 시도
     if (urlInput.includes('maps.app.goo.gl') || urlInput.includes('goo.gl/maps')) {
-      // 단축 URL을 새 탭에서 열기
-      window.open(urlInput, '_blank')
-      setParseError('단축 URL입니다! 방금 열린 구글맵에서 주소창의 전체 URL을 복사해주세요.')
-      return
+      setIsExpanding(true)
+      
+      try {
+        const expandedUrl = await expandShortUrl(urlInput)
+        if (expandedUrl) {
+          urlToParse = expandedUrl
+          console.log('✅ Expanded URL:', expandedUrl)
+        } else {
+          // 확장 실패 시 새 탭에서 열기
+          setIsExpanding(false)
+          window.open(urlInput, '_blank')
+          setParseError('URL 확장 실패. 방금 열린 구글맵에서 주소창의 전체 URL을 복사해주세요.')
+          return
+        }
+      } catch (e) {
+        setIsExpanding(false)
+        window.open(urlInput, '_blank')
+        setParseError('URL 확장 실패. 방금 열린 구글맵에서 주소창의 전체 URL을 복사해주세요.')
+        return
+      }
+      setIsExpanding(false)
     }
 
-    const coords = parseGoogleMapsUrl(urlInput)
-    const info = parseGoogleMapsInfo(urlInput)
+    const coords = parseGoogleMapsUrl(urlToParse)
+    const info = parseGoogleMapsInfo(urlToParse)
 
     if (coords) {
       // 추출된 정보로 폼 업데이트
@@ -572,6 +651,11 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
                 placeholder="구글맵 주소창에서 복사한 URL 붙여넣기 (예: https://www.google.com/maps/place/...)"
                 rows={4}
               />
+              {isExpanding && (
+                <p style={{ color: 'var(--primary)', marginTop: '0.5rem', textAlign: 'center' }}>
+                  ⏳ 단축 URL 확장 중...
+                </p>
+              )}
               {parseError && (
                 <div className="error-message" style={{ marginTop: '0.5rem' }}>
                   <p style={{ margin: 0 }}>⚠️ {parseError}</p>
