@@ -470,35 +470,40 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       
       addLog(`응답: ${response.status}`)
       
-      // 리다이렉션된 URL 확인
-      if (response.url && response.url !== shortUrl) {
-        addLog(`리다이렉트: ${response.url.substring(0, 60)}...`)
-        
-        // 좌표 추출
-        const coordMatch = response.url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
-        if (coordMatch) {
-          addLog(`✅ 좌표 발견: ${coordMatch[1]}, ${coordMatch[2]}`)
-          return response.url
-        }
+      // 리다이렉션된 URL 확인 - Google Maps URL이면 그대로 반환!
+      if (response.url && response.url.includes('google.com/maps')) {
+        addLog(`✅ Google Maps URL 발견!`)
+        addLog(`URL: ${response.url.substring(0, 80)}...`)
+        return response.url  // 그대로 반환, parseGoogleMapsUrl에서 처리
       }
       
-      // HTML에서 좌표 추출
+      // HTML에서 Google Maps URL 또는 좌표 추출
       if (response.data) {
         const html = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
+        
+        // Google Maps URL 추출 (다양한 패턴)
+        const urlPatterns = [
+          /https:\/\/www\.google\.com\/maps\/place\/[^"'\s<>]+/gi,
+          /https:\/\/maps\.google\.com\/maps[^"'\s<>]+/gi,
+          /https:\/\/www\.google\.[a-z.]+\/maps[^"'\s<>]+/gi
+        ]
+        
+        for (const pattern of urlPatterns) {
+          const match = html.match(pattern)
+          if (match && match[0]) {
+            addLog(`✅ HTML에서 URL 발견!`)
+            return match[0]
+          }
+        }
+        
+        // 좌표만 추출
         const coordMatch = html.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
         if (coordMatch) {
-          addLog(`✅ HTML에서 좌표: ${coordMatch[1]}, ${coordMatch[2]}`)
+          addLog(`✅ 좌표: ${coordMatch[1]}, ${coordMatch[2]}`)
           return `https://www.google.com/maps/place/@${coordMatch[1]},${coordMatch[2]},17z`
         }
         
-        // Google Maps URL 추출
-        const urlMatch = html.match(/https:\/\/www\.google\.com\/maps[^"'\s<>]+@-?\d+\.\d+,-?\d+\.\d+[^"'\s<>]*/i)
-        if (urlMatch) {
-          addLog(`✅ URL 발견!`)
-          return urlMatch[0]
-        }
-        
-        addLog('HTML에서 좌표/URL 못찾음')
+        addLog('HTML에서 URL/좌표 못찾음')
       }
     } catch (e) {
       addLog(`Capacitor HTTP 오류: ${e.message}`)
