@@ -449,93 +449,97 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
   // 디버그 로그 추가 함수
   const addLog = (msg) => {
     const time = new Date().toLocaleTimeString()
-    setDebugLog(prev => [...prev.slice(-10), `[${time}] ${msg}`])
+    setDebugLog(prev => [...prev.slice(-15), `[${time}] ${msg}`])
     console.log(msg)
   }
-
-  // 콜백 저장소
-  const urlExpanderCallbacks = useRef({})
-
-  // 네이티브 URL 확장 콜백 설정
-  useEffect(() => {
-    window.urlExpanderCallback = (callbackId, expandedUrl) => {
-      const callback = urlExpanderCallbacks.current[callbackId]
-      if (callback) {
-        callback(expandedUrl)
-        delete urlExpanderCallbacks.current[callbackId]
-      }
-    }
-    return () => {
-      delete window.urlExpanderCallback
-    }
-  }, [])
 
   // 단축 URL 확장 함수
   const expandShortUrl = async (shortUrl) => {
     addLog('=== URL 확장 시작 ===')
-    addLog('UrlExpander: ' + (window.UrlExpander ? '있음 ✅' : '없음 ❌'))
     
-    // 방법 1: 네이티브 앱에서 URL 확장 (CORS 제한 없음)
-    if (window.UrlExpander) {
+    // 여러 CORS 프록시 순차 시도
+    const proxies = [
+      {
+        name: 'corsproxy.io',
+        url: `https://corsproxy.io/?${encodeURIComponent(shortUrl)}`,
+        parse: async (res) => {
+          const html = await res.text()
+          // URL에서 좌표 추출 시도
+          const match = html.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
+          if (match) {
+            return { lat: match[1], lng: match[2], html }
+          }
+          return { html }
+        }
+      },
+      {
+        name: 'allorigins',
+        url: `https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`,
+        parse: async (res) => {
+          const data = await res.json()
+          return { html: data.contents }
+        }
+      },
+      {
+        name: 'cors-anywhere (demo)',
+        url: `https://cors-anywhere.herokuapp.com/${shortUrl}`,
+        parse: async (res) => {
+          const html = await res.text()
+          return { html }
+        }
+      }
+    ]
+
+    for (const proxy of proxies) {
+      addLog(`${proxy.name} 시도...`)
       try {
-        const isAvailable = window.UrlExpander.isAvailable()
-        addLog('네이티브 사용가능: ' + isAvailable)
+        const response = await fetch(proxy.url, {
+          headers: { 'Accept': 'text/html' }
+        })
+        
+        if (!response.ok) {
+          addLog(`${proxy.name}: ${response.status}`)
+          continue
+        }
+        
+        const result = await proxy.parse(response)
+        
+        // 직접 좌표 발견
+        if (result.lat && result.lng) {
+          addLog(`✅ 좌표 발견: ${result.lat}, ${result.lng}`)
+          return `https://www.google.com/maps/place/@${result.lat},${result.lng}`
+        }
+        
+        // HTML에서 Google Maps URL 추출
+        if (result.html) {
+          // 다양한 패턴 시도
+          const patterns = [
+            /https:\/\/www\.google\.com\/maps\/place\/[^"'\s<>]+@-?\d+\.\d+,-?\d+\.\d+[^"'\s<>]*/gi,
+            /https:\/\/maps\.google\.com[^"'\s<>]+/gi,
+            /@(-?\d+\.\d+),(-?\d+\.\d+)/
+          ]
+          
+          for (const pattern of patterns) {
+            const match = result.html.match(pattern)
+            if (match) {
+              if (match[0].startsWith('http')) {
+                addLog(`✅ ${proxy.name} 성공!`)
+                return match[0]
+              } else if (match[1] && match[2]) {
+                // 좌표만 발견
+                addLog(`✅ 좌표: ${match[1]}, ${match[2]}`)
+                return `https://www.google.com/maps/place/@${match[1]},${match[2]},17z`
+              }
+            }
+          }
+          addLog(`${proxy.name}: URL 패턴 없음`)
+        }
       } catch (e) {
-        addLog('isAvailable 오류: ' + e.message)
+        addLog(`${proxy.name} 오류: ${e.message}`)
       }
-      
-      return new Promise((resolve) => {
-        const callbackId = 'cb_' + Date.now()
-        addLog('콜백ID: ' + callbackId)
-        
-        urlExpanderCallbacks.current[callbackId] = (expandedUrl) => {
-          addLog('✅ 콜백 받음!')
-          addLog('결과: ' + (expandedUrl ? expandedUrl.substring(0, 50) + '...' : '없음'))
-          if (expandedUrl && expandedUrl.length > 0) {
-            resolve(expandedUrl)
-          } else {
-            resolve(null)
-          }
-        }
-        
-        setTimeout(() => {
-          if (urlExpanderCallbacks.current[callbackId]) {
-            addLog('⏰ 타임아웃!')
-            delete urlExpanderCallbacks.current[callbackId]
-            resolve(null)
-          }
-        }, 15000)
-        
-        try {
-          addLog('네이티브 호출 중...')
-          window.UrlExpander.expandUrl(shortUrl, callbackId)
-          addLog('호출 완료, 응답 대기...')
-        } catch (e) {
-          addLog('❌ 오류: ' + e.message)
-          resolve(null)
-        }
-      })
-    } else {
-      addLog('웹 환경 - CORS 프록시 사용')
     }
 
-    // 방법 2: 웹 환경 - CORS 프록시 사용
-    addLog('CORS 프록시 시도...')
-    try {
-      const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`)
-      const data = await response.json()
-      if (data.contents) {
-        const mapsUrlMatch = data.contents.match(/https:\/\/(www\.)?google\.(com|co\.\w+)\/maps[^"'\s<>]*/i)
-        if (mapsUrlMatch) {
-          addLog('CORS 성공!')
-          return mapsUrlMatch[0]
-        }
-      }
-      addLog('CORS: URL 못찾음')
-    } catch (e) {
-      addLog('CORS 실패: ' + e.message)
-    }
-
+    addLog('❌ 모든 프록시 실패')
     return null
   }
 
