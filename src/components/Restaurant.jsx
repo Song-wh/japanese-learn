@@ -470,11 +470,53 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       
       addLog(`응답: ${response.status}`)
       
-      // 리다이렉션된 URL 확인 - Google Maps URL이면 그대로 반환!
+      // 리다이렉션된 URL 확인
       if (response.url && response.url.includes('google.com/maps')) {
         addLog(`✅ Google Maps URL 발견!`)
-        addLog(`URL: ${response.url.substring(0, 80)}...`)
-        return response.url  // 그대로 반환, parseGoogleMapsUrl에서 처리
+        
+        // 좌표가 이미 있으면 바로 반환
+        if (response.url.includes('@')) {
+          addLog(`URL에 좌표 있음!`)
+          return response.url
+        }
+        
+        // 좌표 없으면 한번 더 요청해서 HTML에서 추출
+        addLog(`좌표 없음, HTML 파싱 시도...`)
+        try {
+          const pageResponse = await CapacitorHttp.get({
+            url: response.url,
+            headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36' }
+          })
+          
+          if (pageResponse.data) {
+            const html = typeof pageResponse.data === 'string' ? pageResponse.data : JSON.stringify(pageResponse.data)
+            
+            // 다양한 좌표 패턴 시도
+            const patterns = [
+              /@(-?\d+\.\d+),(-?\d+\.\d+)/,                    // @lat,lng
+              /center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/,            // center=lat%2Clng
+              /\\"lat\\":(-?\d+\.\d+),\\"lng\\":(-?\d+\.\d+)/, // "lat":xx,"lng":xx
+              /ll=(-?\d+\.\d+),(-?\d+\.\d+)/,                  // ll=lat,lng
+              /\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]/        // [null,null,lat,lng]
+            ]
+            
+            for (const pattern of patterns) {
+              const match = html.match(pattern)
+              if (match) {
+                const lat = match[1]
+                const lng = match[2]
+                addLog(`✅ HTML에서 좌표 발견: ${lat}, ${lng}`)
+                return `https://www.google.com/maps/place/@${lat},${lng},17z`
+              }
+            }
+            addLog(`HTML에서 좌표 못찾음 (${html.length} bytes)`)
+          }
+        } catch (e) {
+          addLog(`HTML 요청 오류: ${e.message}`)
+        }
+        
+        // 좌표 못 찾아도 URL 반환 (사용자가 수동으로 좌표 입력)
+        return response.url
       }
       
       // HTML에서 Google Maps URL 또는 좌표 추출
