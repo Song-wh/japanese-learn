@@ -445,59 +445,61 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
 
   const [isExpanding, setIsExpanding] = useState(false)
 
+  // 콜백 저장소
+  const urlExpanderCallbacks = useRef({})
+
+  // 네이티브 URL 확장 콜백 설정
+  useEffect(() => {
+    window.urlExpanderCallback = (callbackId, expandedUrl) => {
+      const callback = urlExpanderCallbacks.current[callbackId]
+      if (callback) {
+        callback(expandedUrl)
+        delete urlExpanderCallbacks.current[callbackId]
+      }
+    }
+    return () => {
+      delete window.urlExpanderCallback
+    }
+  }, [])
+
   // 단축 URL 확장 함수
   const expandShortUrl = async (shortUrl) => {
-    // 방법 1: unshorten.me API
-    try {
-      const response = await fetch(`https://unshorten.me/json/${encodeURIComponent(shortUrl)}`)
-      const data = await response.json()
-      if (data.resolved_url && data.resolved_url.includes('google.com/maps')) {
-        return data.resolved_url
-      }
-    } catch (e) {
-      console.log('unshorten.me failed:', e)
+    // 방법 1: 네이티브 앱에서 URL 확장 (CORS 제한 없음)
+    if (window.UrlExpander) {
+      return new Promise((resolve) => {
+        const callbackId = 'cb_' + Date.now()
+        urlExpanderCallbacks.current[callbackId] = (expandedUrl) => {
+          if (expandedUrl && expandedUrl.includes('google.com/maps')) {
+            resolve(expandedUrl)
+          } else {
+            resolve(null)
+          }
+        }
+        
+        // 5초 타임아웃
+        setTimeout(() => {
+          if (urlExpanderCallbacks.current[callbackId]) {
+            delete urlExpanderCallbacks.current[callbackId]
+            resolve(null)
+          }
+        }, 5000)
+        
+        window.UrlExpander.expandUrl(shortUrl, callbackId)
+      })
     }
 
-    // 방법 2: allorigins로 HTML 가져와서 파싱
+    // 방법 2: 웹 환경 - CORS 프록시 사용
     try {
       const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`)
       const data = await response.json()
       if (data.contents) {
-        // HTML에서 og:url 메타 태그 추출
-        const ogUrlMatch = data.contents.match(/property="og:url"\s+content="([^"]+)"/)
-        if (ogUrlMatch && ogUrlMatch[1].includes('google.com/maps')) {
-          return ogUrlMatch[1]
-        }
-        // canonical URL 추출
-        const canonicalMatch = data.contents.match(/rel="canonical"\s+href="([^"]+)"/)
-        if (canonicalMatch && canonicalMatch[1].includes('google.com/maps')) {
-          return canonicalMatch[1]
-        }
-        // 좌표가 포함된 URL 직접 추출
         const mapsUrlMatch = data.contents.match(/https:\/\/www\.google\.com\/maps\/place\/[^"'\s]+@-?\d+\.\d+,-?\d+\.\d+[^"'\s]*/i)
         if (mapsUrlMatch) {
           return mapsUrlMatch[0]
         }
-        // data-url 속성에서 추출
-        const dataUrlMatch = data.contents.match(/data-url="([^"]*google\.com\/maps[^"]*)"/i)
-        if (dataUrlMatch) {
-          return dataUrlMatch[1]
-        }
       }
     } catch (e) {
-      console.log('allorigins failed:', e)
-    }
-
-    // 방법 3: corsproxy.io
-    try {
-      const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(shortUrl)}`)
-      const html = await response.text()
-      const mapsUrlMatch = html.match(/https:\/\/www\.google\.com\/maps\/place\/[^"'\s]+@-?\d+\.\d+,-?\d+\.\d+[^"'\s]*/i)
-      if (mapsUrlMatch) {
-        return mapsUrlMatch[0]
-      }
-    } catch (e) {
-      console.log('corsproxy.io failed:', e)
+      console.log('CORS proxy failed:', e)
     }
 
     return null
