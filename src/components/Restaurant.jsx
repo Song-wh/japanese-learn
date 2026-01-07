@@ -443,51 +443,6 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     window.open(`https://www.google.com/maps/search/${encodedQuery}`, '_blank')
   }
 
-  const [isExpanding, setIsExpanding] = useState(false)
-
-  // 단축 URL 확장 함수
-  const expandShortUrl = async (shortUrl) => {
-    // 여러 CORS 프록시 시도
-    const proxies = [
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(shortUrl)}`,
-      `https://corsproxy.io/?${encodeURIComponent(shortUrl)}`
-    ]
-    
-    for (const proxyUrl of proxies) {
-      try {
-        const response = await fetch(proxyUrl, { 
-          method: 'HEAD',
-          redirect: 'follow'
-        })
-        // 리다이렉션된 URL 가져오기
-        if (response.url && response.url.includes('google.com/maps')) {
-          return response.url
-        }
-      } catch (e) {
-        console.log('Proxy failed:', e)
-      }
-    }
-    
-    // 프록시 실패 시 다른 방법 시도
-    try {
-      const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`)
-      const data = await response.json()
-      // HTML에서 meta refresh나 redirect URL 추출
-      const metaMatch = data.contents?.match(/url=([^"'\s>]+)/i)
-      if (metaMatch) {
-        return decodeURIComponent(metaMatch[1])
-      }
-      // 또는 전체 응답 URL
-      if (data.status?.url) {
-        return data.status.url
-      }
-    } catch (e) {
-      console.log('URL expansion failed:', e)
-    }
-    
-    return null
-  }
-
   // 구글맵 URL 파싱해서 데이터 가져오기
   const handleParseUrl = async () => {
     setParseError('')
@@ -497,34 +452,16 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       return
     }
 
-    let urlToParse = urlInput
-
-    // 단축 URL인 경우 확장 시도
+    // 단축 URL인 경우 바로 안내
     if (urlInput.includes('maps.app.goo.gl') || urlInput.includes('goo.gl/maps')) {
-      setIsExpanding(true)
-      setParseError('')
-      
-      try {
-        const expandedUrl = await expandShortUrl(urlInput)
-        if (expandedUrl) {
-          urlToParse = expandedUrl
-          console.log('Expanded URL:', expandedUrl)
-        } else {
-          setIsExpanding(false)
-          setParseError('단축 URL 확장 실패. 구글맵을 열어서 주소창에서 직접 URL을 복사해주세요.')
-          // 단축 URL을 열어주는 버튼 표시를 위해 에러 상태 유지
-          return
-        }
-      } catch (e) {
-        setIsExpanding(false)
-        setParseError('단축 URL 확장 실패. 구글맵을 열어서 주소창에서 직접 URL을 복사해주세요.')
-        return
-      }
-      setIsExpanding(false)
+      // 단축 URL을 새 탭에서 열기
+      window.open(urlInput, '_blank')
+      setParseError('단축 URL입니다! 방금 열린 구글맵에서 주소창의 전체 URL을 복사해주세요.')
+      return
     }
 
-    const coords = parseGoogleMapsUrl(urlToParse)
-    const info = parseGoogleMapsInfo(urlToParse)
+    const coords = parseGoogleMapsUrl(urlInput)
+    const info = parseGoogleMapsInfo(urlInput)
 
     if (coords) {
       // 추출된 정보로 폼 업데이트
@@ -657,11 +594,6 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
                     </button>
                   )}
                 </div>
-              )}
-              {isExpanding && (
-                <p style={{ color: 'var(--primary)', marginTop: '0.5rem' }}>
-                  ⏳ 단축 URL 확장 중...
-                </p>
               )}
             </div>
 
