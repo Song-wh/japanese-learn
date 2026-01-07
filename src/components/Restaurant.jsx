@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { CapacitorHttp } from '@capacitor/core'
 import { categories, cities } from '../data/restaurants'
 import { getRestaurants, saveRestaurants, addRestaurant, deleteRestaurant, updateRestaurant } from '../utils/restaurantStorage'
 import CustomSelect from './CustomSelect'
@@ -453,93 +454,74 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     console.log(msg)
   }
 
-  // 단축 URL 확장 함수
+  // 단축 URL 확장 함수 - Capacitor HTTP 사용
   const expandShortUrl = async (shortUrl) => {
     addLog('=== URL 확장 시작 ===')
     
-    // 여러 CORS 프록시 순차 시도
-    const proxies = [
-      {
-        name: 'corsproxy.io',
-        url: `https://corsproxy.io/?${encodeURIComponent(shortUrl)}`,
-        parse: async (res) => {
-          const html = await res.text()
-          // URL에서 좌표 추출 시도
-          const match = html.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
-          if (match) {
-            return { lat: match[1], lng: match[2], html }
-          }
-          return { html }
+    // 방법 1: Capacitor HTTP 직접 요청 (CORS 없음!)
+    try {
+      addLog('Capacitor HTTP 시도...')
+      const response = await CapacitorHttp.get({
+        url: shortUrl,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
         }
-      },
-      {
-        name: 'allorigins',
-        url: `https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`,
-        parse: async (res) => {
-          const data = await res.json()
-          return { html: data.contents }
-        }
-      },
-      {
-        name: 'cors-anywhere (demo)',
-        url: `https://cors-anywhere.herokuapp.com/${shortUrl}`,
-        parse: async (res) => {
-          const html = await res.text()
-          return { html }
+      })
+      
+      addLog(`응답: ${response.status}`)
+      
+      // 리다이렉션된 URL 확인
+      if (response.url && response.url !== shortUrl) {
+        addLog(`리다이렉트: ${response.url.substring(0, 60)}...`)
+        
+        // 좌표 추출
+        const coordMatch = response.url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
+        if (coordMatch) {
+          addLog(`✅ 좌표 발견: ${coordMatch[1]}, ${coordMatch[2]}`)
+          return response.url
         }
       }
-    ]
-
-    for (const proxy of proxies) {
-      addLog(`${proxy.name} 시도...`)
-      try {
-        const response = await fetch(proxy.url, {
-          headers: { 'Accept': 'text/html' }
-        })
-        
-        if (!response.ok) {
-          addLog(`${proxy.name}: ${response.status}`)
-          continue
+      
+      // HTML에서 좌표 추출
+      if (response.data) {
+        const html = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
+        const coordMatch = html.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
+        if (coordMatch) {
+          addLog(`✅ HTML에서 좌표: ${coordMatch[1]}, ${coordMatch[2]}`)
+          return `https://www.google.com/maps/place/@${coordMatch[1]},${coordMatch[2]},17z`
         }
         
-        const result = await proxy.parse(response)
-        
-        // 직접 좌표 발견
-        if (result.lat && result.lng) {
-          addLog(`✅ 좌표 발견: ${result.lat}, ${result.lng}`)
-          return `https://www.google.com/maps/place/@${result.lat},${result.lng}`
+        // Google Maps URL 추출
+        const urlMatch = html.match(/https:\/\/www\.google\.com\/maps[^"'\s<>]+@-?\d+\.\d+,-?\d+\.\d+[^"'\s<>]*/i)
+        if (urlMatch) {
+          addLog(`✅ URL 발견!`)
+          return urlMatch[0]
         }
         
-        // HTML에서 Google Maps URL 추출
-        if (result.html) {
-          // 다양한 패턴 시도
-          const patterns = [
-            /https:\/\/www\.google\.com\/maps\/place\/[^"'\s<>]+@-?\d+\.\d+,-?\d+\.\d+[^"'\s<>]*/gi,
-            /https:\/\/maps\.google\.com[^"'\s<>]+/gi,
-            /@(-?\d+\.\d+),(-?\d+\.\d+)/
-          ]
-          
-          for (const pattern of patterns) {
-            const match = result.html.match(pattern)
-            if (match) {
-              if (match[0].startsWith('http')) {
-                addLog(`✅ ${proxy.name} 성공!`)
-                return match[0]
-              } else if (match[1] && match[2]) {
-                // 좌표만 발견
-                addLog(`✅ 좌표: ${match[1]}, ${match[2]}`)
-                return `https://www.google.com/maps/place/@${match[1]},${match[2]},17z`
-              }
-            }
-          }
-          addLog(`${proxy.name}: URL 패턴 없음`)
-        }
-      } catch (e) {
-        addLog(`${proxy.name} 오류: ${e.message}`)
+        addLog('HTML에서 좌표/URL 못찾음')
       }
+    } catch (e) {
+      addLog(`Capacitor HTTP 오류: ${e.message}`)
+    }
+    
+    // 방법 2: 일반 fetch fallback
+    addLog('fetch fallback 시도...')
+    try {
+      const response = await fetch(shortUrl, {
+        redirect: 'follow',
+        headers: { 'Accept': 'text/html' }
+      })
+      const html = await response.text()
+      const coordMatch = html.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
+      if (coordMatch) {
+        addLog(`✅ fetch 좌표: ${coordMatch[1]}, ${coordMatch[2]}`)
+        return `https://www.google.com/maps/place/@${coordMatch[1]},${coordMatch[2]},17z`
+      }
+    } catch (e) {
+      addLog(`fetch 오류: ${e.message}`)
     }
 
-    addLog('❌ 모든 프록시 실패')
+    addLog('❌ 모든 방법 실패')
     return null
   }
 
