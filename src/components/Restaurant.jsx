@@ -443,8 +443,53 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     window.open(`https://www.google.com/maps/search/${encodedQuery}`, '_blank')
   }
 
+  const [isExpanding, setIsExpanding] = useState(false)
+
+  // 단축 URL 확장 함수
+  const expandShortUrl = async (shortUrl) => {
+    // 여러 CORS 프록시 시도
+    const proxies = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(shortUrl)}`,
+      `https://corsproxy.io/?${encodeURIComponent(shortUrl)}`
+    ]
+    
+    for (const proxyUrl of proxies) {
+      try {
+        const response = await fetch(proxyUrl, { 
+          method: 'HEAD',
+          redirect: 'follow'
+        })
+        // 리다이렉션된 URL 가져오기
+        if (response.url && response.url.includes('google.com/maps')) {
+          return response.url
+        }
+      } catch (e) {
+        console.log('Proxy failed:', e)
+      }
+    }
+    
+    // 프록시 실패 시 다른 방법 시도
+    try {
+      const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`)
+      const data = await response.json()
+      // HTML에서 meta refresh나 redirect URL 추출
+      const metaMatch = data.contents?.match(/url=([^"'\s>]+)/i)
+      if (metaMatch) {
+        return decodeURIComponent(metaMatch[1])
+      }
+      // 또는 전체 응답 URL
+      if (data.status?.url) {
+        return data.status.url
+      }
+    } catch (e) {
+      console.log('URL expansion failed:', e)
+    }
+    
+    return null
+  }
+
   // 구글맵 URL 파싱해서 데이터 가져오기
-  const handleParseUrl = () => {
+  const handleParseUrl = async () => {
     setParseError('')
     
     if (!urlInput.includes('google.com/maps') && !urlInput.includes('goo.gl/maps') && !urlInput.includes('maps.app.goo.gl')) {
@@ -452,8 +497,34 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       return
     }
 
-    const coords = parseGoogleMapsUrl(urlInput)
-    const info = parseGoogleMapsInfo(urlInput)
+    let urlToParse = urlInput
+
+    // 단축 URL인 경우 확장 시도
+    if (urlInput.includes('maps.app.goo.gl') || urlInput.includes('goo.gl/maps')) {
+      setIsExpanding(true)
+      setParseError('')
+      
+      try {
+        const expandedUrl = await expandShortUrl(urlInput)
+        if (expandedUrl) {
+          urlToParse = expandedUrl
+          console.log('Expanded URL:', expandedUrl)
+        } else {
+          setIsExpanding(false)
+          setParseError('단축 URL 확장 실패. 구글맵을 열어서 주소창에서 직접 URL을 복사해주세요.')
+          // 단축 URL을 열어주는 버튼 표시를 위해 에러 상태 유지
+          return
+        }
+      } catch (e) {
+        setIsExpanding(false)
+        setParseError('단축 URL 확장 실패. 구글맵을 열어서 주소창에서 직접 URL을 복사해주세요.')
+        return
+      }
+      setIsExpanding(false)
+    }
+
+    const coords = parseGoogleMapsUrl(urlToParse)
+    const info = parseGoogleMapsInfo(urlToParse)
 
     if (coords) {
       // 추출된 정보로 폼 업데이트
@@ -485,8 +556,13 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       
       alert(`✅ ${extracted.join(', ')}를 가져왔습니다!${extracted.length < 3 ? '\n💡 나머지 정보는 직접 입력해주세요.' : ''}`)
     } else {
-      setParseError('좌표를 찾을 수 없습니다. 구글맵에서 장소를 선택한 후 공유 > 링크 복사를 해주세요.')
+      setParseError('좌표를 찾을 수 없습니다. 구글맵 브라우저 주소창에서 URL을 복사해주세요.')
     }
+  }
+
+  // 단축 URL을 브라우저에서 열기
+  const openShortUrl = () => {
+    window.open(urlInput, '_blank')
   }
 
   const categoryEmojis = {
@@ -510,19 +586,20 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
               <ol>
                 <li>아래 검색어를 입력하고 "구글맵 열기" 클릭</li>
                 <li>구글맵에서 원하는 장소 선택</li>
-                <li>공유 버튼 클릭 → "링크 복사"</li>
+                <li><strong>⚠️ 브라우저 주소창에서 URL 복사</strong></li>
                 <li>복사한 링크를 아래에 붙여넣기</li>
               </ol>
               <div style={{ 
                 marginTop: '0.8rem', 
                 padding: '0.6rem 0.8rem',
-                background: 'rgba(255,255,255,0.05)',
+                background: 'rgba(255,100,100,0.15)',
                 borderRadius: '8px',
                 fontSize: '0.8rem',
-                color: 'var(--text-secondary)'
+                color: '#ffaaaa',
+                border: '1px solid rgba(255,100,100,0.3)'
               }}>
-                <strong>자동 추출:</strong> 좌표, 가게 이름 (일본어), 주소<br/>
-                <span style={{ opacity: 0.7 }}>※ 영업시간, 전화번호는 직접 입력</span>
+                <strong>❌ 주의:</strong> "공유 → 링크 복사"로 하면 안됩니다!<br/>
+                <strong>✅ 올바른 방법:</strong> 브라우저 <strong>주소창</strong>에서 직접 복사
               </div>
             </div>
 
@@ -555,12 +632,35 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
                   setUrlInput(e.target.value)
                   setParseError('')
                 }}
-                placeholder="구글맵에서 공유 버튼 → 링크 복사한 URL을 붙여넣기..."
+                placeholder="구글맵 주소창에서 복사한 URL 붙여넣기 (예: https://www.google.com/maps/place/...)"
                 rows={4}
               />
               {parseError && (
-                <p className="error-message">
-                  ⚠️ {parseError}
+                <div className="error-message" style={{ marginTop: '0.5rem' }}>
+                  <p style={{ margin: 0 }}>⚠️ {parseError}</p>
+                  {(urlInput.includes('maps.app.goo.gl') || urlInput.includes('goo.gl/maps')) && (
+                    <button 
+                      type="button"
+                      onClick={openShortUrl}
+                      style={{
+                        marginTop: '0.5rem',
+                        padding: '0.5rem 1rem',
+                        background: 'var(--primary)',
+                        border: 'none',
+                        borderRadius: '6px',
+                        color: 'white',
+                        cursor: 'pointer',
+                        fontSize: '0.85rem'
+                      }}
+                    >
+                      🔗 구글맵에서 열기 → 주소창 복사
+                    </button>
+                  )}
+                </div>
+              )}
+              {isExpanding && (
+                <p style={{ color: 'var(--primary)', marginTop: '0.5rem' }}>
+                  ⏳ 단축 URL 확장 중...
                 </p>
               )}
             </div>
