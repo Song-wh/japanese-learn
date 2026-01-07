@@ -464,37 +464,58 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
 
   // 단축 URL 확장 함수
   const expandShortUrl = async (shortUrl) => {
+    console.log('expandShortUrl 시작:', shortUrl)
+    console.log('UrlExpander 존재:', !!window.UrlExpander)
+    
     // 방법 1: 네이티브 앱에서 URL 확장 (CORS 제한 없음)
     if (window.UrlExpander) {
       return new Promise((resolve) => {
         const callbackId = 'cb_' + Date.now()
+        console.log('콜백 ID:', callbackId)
+        
         urlExpanderCallbacks.current[callbackId] = (expandedUrl) => {
-          if (expandedUrl && expandedUrl.includes('google.com/maps')) {
+          console.log('콜백 받음:', expandedUrl)
+          // google.com/maps 또는 maps.google.com 체크
+          if (expandedUrl && (expandedUrl.includes('google.com/maps') || expandedUrl.includes('maps.google.com'))) {
+            resolve(expandedUrl)
+          } else if (expandedUrl && expandedUrl.includes('@')) {
+            // 좌표가 포함된 URL이면 일단 반환
             resolve(expandedUrl)
           } else {
+            console.log('유효하지 않은 URL:', expandedUrl)
             resolve(null)
           }
         }
         
-        // 5초 타임아웃
+        // 10초 타임아웃
         setTimeout(() => {
           if (urlExpanderCallbacks.current[callbackId]) {
+            console.log('타임아웃 발생')
             delete urlExpanderCallbacks.current[callbackId]
             resolve(null)
           }
-        }, 5000)
+        }, 10000)
         
-        window.UrlExpander.expandUrl(shortUrl, callbackId)
+        try {
+          window.UrlExpander.expandUrl(shortUrl, callbackId)
+          console.log('네이티브 호출 완료')
+        } catch (e) {
+          console.error('네이티브 호출 오류:', e)
+          resolve(null)
+        }
       })
     }
 
     // 방법 2: 웹 환경 - CORS 프록시 사용
+    console.log('웹 환경 - CORS 프록시 사용')
     try {
       const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(shortUrl)}`)
       const data = await response.json()
       if (data.contents) {
-        const mapsUrlMatch = data.contents.match(/https:\/\/www\.google\.com\/maps\/place\/[^"'\s]+@-?\d+\.\d+,-?\d+\.\d+[^"'\s]*/i)
+        // 다양한 Google Maps URL 패턴 매칭
+        const mapsUrlMatch = data.contents.match(/https:\/\/(www\.)?google\.(com|co\.\w+)\/maps[^"'\s<>]*/i)
         if (mapsUrlMatch) {
+          console.log('CORS 프록시 성공:', mapsUrlMatch[0])
           return mapsUrlMatch[0]
         }
       }

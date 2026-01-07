@@ -1,6 +1,7 @@
 package com.songwh.japaneselearn;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
@@ -8,6 +9,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 public class MainActivity extends BridgeActivity {
+    
+    private static final String TAG = "UrlExpander";
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -17,6 +20,7 @@ public class MainActivity extends BridgeActivity {
         getBridge().getWebView().post(() -> {
             WebView webView = getBridge().getWebView();
             webView.addJavascriptInterface(new UrlExpander(), "UrlExpander");
+            Log.d(TAG, "UrlExpander JavaScript Interface 등록됨");
         });
     }
     
@@ -25,78 +29,63 @@ public class MainActivity extends BridgeActivity {
         
         @JavascriptInterface
         public void expandUrl(String shortUrl, String callbackId) {
+            Log.d(TAG, "expandUrl 호출됨: " + shortUrl);
+            
             new Thread(() -> {
-                String expandedUrl = resolveUrl(shortUrl);
+                String expandedUrl = resolveUrlRecursive(shortUrl, 10);
+                Log.d(TAG, "최종 URL: " + expandedUrl);
                 
                 // 결과를 JavaScript로 전달
                 runOnUiThread(() -> {
                     WebView webView = getBridge().getWebView();
+                    String safeUrl = expandedUrl != null ? 
+                        expandedUrl.replace("\\", "\\\\").replace("'", "\\'") : "";
                     String jsCallback = String.format(
-                        "window.urlExpanderCallback('%s', '%s')",
+                        "if(window.urlExpanderCallback) window.urlExpanderCallback('%s', '%s')",
                         callbackId,
-                        expandedUrl != null ? expandedUrl.replace("'", "\\'") : ""
+                        safeUrl
                     );
+                    Log.d(TAG, "JS 콜백 실행: " + jsCallback);
                     webView.evaluateJavascript(jsCallback, null);
                 });
             }).start();
         }
         
-        private String resolveUrl(String shortUrl) {
-            HttpURLConnection connection = null;
-            try {
-                URL url = new URL(shortUrl);
-                connection = (HttpURLConnection) url.openConnection();
-                connection.setInstanceFollowRedirects(false);
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(5000);
-                connection.setReadTimeout(5000);
-                connection.connect();
-                
-                int responseCode = connection.getResponseCode();
-                
-                // 리다이렉션 응답이면 Location 헤더 반환
-                if (responseCode >= 300 && responseCode < 400) {
-                    String location = connection.getHeaderField("Location");
-                    if (location != null) {
-                        // 상대 경로인 경우 절대 경로로 변환
-                        if (!location.startsWith("http")) {
-                            URL baseUrl = new URL(shortUrl);
-                            location = new URL(baseUrl, location).toString();
-                        }
-                        // 한번 더 리다이렉션 따라가기 (maps.app.goo.gl은 보통 2단계)
-                        return resolveUrlRecursive(location, 3);
-                    }
-                }
-                
-                return shortUrl;
-            } catch (Exception e) {
-                e.printStackTrace();
-                return null;
-            } finally {
-                if (connection != null) {
-                    connection.disconnect();
-                }
-            }
-        }
-        
         private String resolveUrlRecursive(String urlStr, int maxRedirects) {
-            if (maxRedirects <= 0) return urlStr;
+            if (maxRedirects <= 0) {
+                Log.d(TAG, "최대 리다이렉션 도달: " + urlStr);
+                return urlStr;
+            }
             
             HttpURLConnection connection = null;
             try {
+                Log.d(TAG, "URL 요청: " + urlStr + " (남은 리다이렉션: " + maxRedirects + ")");
+                
                 URL url = new URL(urlStr);
                 connection = (HttpURLConnection) url.openConnection();
                 connection.setInstanceFollowRedirects(false);
                 connection.setRequestMethod("GET");
-                connection.setConnectTimeout(5000);
-                connection.setReadTimeout(5000);
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(10000);
+                
+                // 브라우저처럼 보이도록 User-Agent 설정
+                connection.setRequestProperty("User-Agent", 
+                    "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+                connection.setRequestProperty("Accept", 
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                
                 connection.connect();
                 
                 int responseCode = connection.getResponseCode();
+                Log.d(TAG, "응답 코드: " + responseCode);
                 
+                // 리다이렉션 응답
                 if (responseCode >= 300 && responseCode < 400) {
                     String location = connection.getHeaderField("Location");
-                    if (location != null) {
+                    Log.d(TAG, "Location 헤더: " + location);
+                    
+                    if (location != null && !location.isEmpty()) {
+                        // 상대 경로인 경우 절대 경로로 변환
                         if (!location.startsWith("http")) {
                             location = new URL(url, location).toString();
                         }
@@ -104,8 +93,13 @@ public class MainActivity extends BridgeActivity {
                     }
                 }
                 
+                // 200 OK 또는 리다이렉션 끝
+                Log.d(TAG, "최종 도달 URL: " + urlStr);
                 return urlStr;
+                
             } catch (Exception e) {
+                Log.e(TAG, "URL 처리 오류: " + e.getMessage());
+                e.printStackTrace();
                 return urlStr;
             } finally {
                 if (connection != null) {

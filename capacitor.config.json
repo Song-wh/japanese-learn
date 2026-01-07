@@ -1,6 +1,6 @@
 {
   "appId": "com.songwh.japaneselearn",
-  "appName": "일본어 학습",
+  "appName": "일본어",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"
