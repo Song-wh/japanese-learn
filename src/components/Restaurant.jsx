@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { defaultRestaurants, categories, cities } from '../data/restaurants'
+import { categories, cities } from '../data/restaurants'
 import { getRestaurants, saveRestaurants, addRestaurant, deleteRestaurant, updateRestaurant } from '../utils/restaurantStorage'
 import CustomSelect from './CustomSelect'
 
@@ -14,14 +14,9 @@ function Restaurant({ onBack }) {
   const [showDetail, setShowDetail] = useState(null)
 
   useEffect(() => {
-    // 저장된 맛집 불러오기 (없으면 기본 데이터)
+    // 저장된 맛집 불러오기 (사용자 등록 데이터만 유지)
     const saved = getRestaurants()
-    if (saved.length === 0) {
-      saveRestaurants(defaultRestaurants)
-      setRestaurants(defaultRestaurants)
-    } else {
-      setRestaurants(saved)
-    }
+    setRestaurants(saved)
 
     // 현재 위치 가져오기
     if (navigator.geolocation) {

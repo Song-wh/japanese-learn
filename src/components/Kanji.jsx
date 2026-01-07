@@ -443,3 +443,5 @@ function Kanji({ onBack }) {
 
 export default Kanji
 
+
+
