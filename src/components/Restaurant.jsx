@@ -488,29 +488,62 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
             headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36' }
           })
           
-          if (pageResponse.data) {
-            const html = typeof pageResponse.data === 'string' ? pageResponse.data : JSON.stringify(pageResponse.data)
-            
-            // 다양한 좌표 패턴 시도
-            const patterns = [
-              /@(-?\d+\.\d+),(-?\d+\.\d+)/,                    // @lat,lng
-              /center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/,            // center=lat%2Clng
-              /\\"lat\\":(-?\d+\.\d+),\\"lng\\":(-?\d+\.\d+)/, // "lat":xx,"lng":xx
-              /ll=(-?\d+\.\d+),(-?\d+\.\d+)/,                  // ll=lat,lng
-              /\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]/        // [null,null,lat,lng]
-            ]
-            
-            for (const pattern of patterns) {
-              const match = html.match(pattern)
-              if (match) {
-                const lat = match[1]
-                const lng = match[2]
-                addLog(`✅ HTML에서 좌표 발견: ${lat}, ${lng}`)
-                return `https://www.google.com/maps/place/@${lat},${lng},17z`
-              }
-            }
-            addLog(`HTML에서 좌표 못찾음 (${html.length} bytes)`)
-          }
+                  if (pageResponse.data) {
+                    const html = typeof pageResponse.data === 'string' ? pageResponse.data : JSON.stringify(pageResponse.data)
+                    
+                    // 다양한 좌표 패턴 시도 (더 많은 패턴 추가)
+                    const patterns = [
+                      /@(-?\d+\.\d+),(-?\d+\.\d+)/,                              // @lat,lng
+                      /center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/,                      // center=lat%2Clng
+                      /\\"lat\\":(-?\d+\.\d+),\\"lng\\":(-?\d+\.\d+)/,           // "lat":xx,"lng":xx
+                      /"lat":(-?\d+\.\d+),"lng":(-?\d+\.\d+)/,                   // "lat":xx,"lng":xx (unescaped)
+                      /ll=(-?\d+\.\d+),(-?\d+\.\d+)/,                            // ll=lat,lng
+                      /\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]/,                 // [null,null,lat,lng]
+                      /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/,                          // !3d lat !4d lng (data params)
+                      /\[(-?\d+\.\d{4,}),(-?\d+\.\d{4,})\]/,                     // [lat,lng] 소수점 4자리 이상
+                      /,(-?\d+\.\d{5,}),(-?\d+\.\d{5,}),/,                       // ,lat,lng, 사이에 있는 좌표
+                      /APP_INITIALIZATION_STATE.*?(-?\d{2,3}\.\d{5,}).*?(-?\d{2,3}\.\d{5,})/s, // APP_INITIALIZATION_STATE
+                      /\\u0022(-?\d{2}\.\d{5,})\\u0022.*?\\u0022(-?\d{2,3}\.\d{5,})\\u0022/,   // unicode escaped
+                      /pb=.*?!2d(-?\d+\.\d+)!3d(-?\d+\.\d+)/,                    // pb= 파라미터 (lng, lat 순서!)
+                      /"(-?\d{2}\.\d{6,})","(-?\d{2,3}\.\d{6,})"/,               // 문자열 좌표
+                    ]
+                    
+                    for (let i = 0; i < patterns.length; i++) {
+                      const pattern = patterns[i]
+                      const match = html.match(pattern)
+                      if (match) {
+                        let lat = match[1]
+                        let lng = match[2]
+                        
+                        // pb= 파라미터는 lng, lat 순서이므로 swap
+                        if (i === 11) { // pb= pattern
+                          [lat, lng] = [lng, lat]
+                        }
+                        
+                        // 유효한 좌표인지 검증 (일본 범위: 위도 24~46, 경도 122~154)
+                        const latNum = parseFloat(lat)
+                        const lngNum = parseFloat(lng)
+                        if (latNum >= 20 && latNum <= 50 && lngNum >= 120 && lngNum <= 160) {
+                          addLog(`✅ HTML 패턴${i+1}에서 좌표 발견: ${lat}, ${lng}`)
+                          return `https://www.google.com/maps/place/@${lat},${lng},17z`
+                        }
+                      }
+                    }
+                    
+                    // 마지막 시도: 모든 숫자 쌍 중 좌표처럼 보이는 것 찾기
+                    const allCoords = html.matchAll(/(-?\d{2}\.\d{5,})/g)
+                    const nums = [...allCoords].map(m => parseFloat(m[1]))
+                    for (let i = 0; i < nums.length - 1; i++) {
+                      const n1 = nums[i], n2 = nums[i+1]
+                      // 일본 좌표 범위 체크
+                      if (n1 >= 24 && n1 <= 46 && n2 >= 122 && n2 <= 154) {
+                        addLog(`✅ 숫자쌍에서 좌표 추정: ${n1}, ${n2}`)
+                        return `https://www.google.com/maps/place/@${n1},${n2},17z`
+                      }
+                    }
+                    
+                    addLog(`HTML에서 좌표 못찾음 (${html.length} bytes)`)
+                  }
         } catch (e) {
           addLog(`HTML 요청 오류: ${e.message}`)
         }
@@ -768,6 +801,16 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
                       🔗 구글맵에서 열기 → 주소창 복사
                     </button>
                   )}
+                  <div style={{
+                    marginTop: '0.8rem',
+                    padding: '0.6rem',
+                    background: 'rgba(100, 200, 255, 0.1)',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    color: '#aaddff'
+                  }}>
+                    💡 <strong>다른 방법:</strong> 구글맵에서 장소를 <strong>길게 누르면</strong> 좌표가 표시됩니다. 그 좌표를 아래 위도/경도에 직접 입력하세요!
+                  </div>
                 </div>
               )}
             </div>
