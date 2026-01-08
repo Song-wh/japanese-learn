@@ -167,6 +167,10 @@ export const categories = {
   kaiseki: { name: '가이세키', icon: '🍱' },
   izakaya: { name: '이자카야', icon: '🍶' },
   cafe: { name: '카페/디저트', icon: '🍰' },
+  tempura: { name: '텐푸라', icon: '🍤' },
+  udon: { name: '우동', icon: '🍲' },
+  soba: { name: '소바', icon: '🥢' },
+  curry: { name: '카레', icon: '🍛' },
   other: { name: '기타', icon: '🍴' }
 }
 

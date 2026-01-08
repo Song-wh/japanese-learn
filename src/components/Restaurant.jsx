@@ -555,7 +555,36 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       address: null,
       rating: null,
       hours: null,
-      priceRange: null
+      priceRange: null,
+      city: null,
+      category: null
+    }
+    
+    // 도시 매핑
+    const cityPatterns = {
+      tokyo: ['東京', 'Tokyo', '도쿄', 'とうきょう'],
+      osaka: ['大阪', 'Osaka', '오사카', 'おおさか'],
+      kyoto: ['京都', 'Kyoto', '교토', 'きょうと'],
+      fukuoka: ['福岡', 'Fukuoka', '후쿠오카', 'ふくおか', '博多', 'Hakata'],
+      sapporo: ['札幌', 'Sapporo', '삿포로', 'さっぽろ', '北海道', 'Hokkaido'],
+      nagoya: ['名古屋', 'Nagoya', '나고야', 'なごや', '愛知', 'Aichi'],
+      okinawa: ['沖縄', 'Okinawa', '오키나와', 'おきなわ', '那覇', 'Naha']
+    }
+    
+    // 카테고리 매핑
+    const categoryPatterns = {
+      ramen: ['라멘', 'ラーメン', 'らーめん', '拉麺', 'ramen', '麺', 'つけ麺'],
+      sushi: ['스시', '초밥', '寿司', 'すし', 'sushi', '鮨', '회전초밥'],
+      yakiniku: ['야키니쿠', '焼肉', 'やきにく', 'yakiniku', '焼き肉', '불고기', '고기'],
+      katsu: ['돈카츠', '규카츠', 'とんかつ', 'カツ', 'かつ', 'katsu', '豚カツ', '牛カツ'],
+      kushikatsu: ['쿠시카츠', '串カツ', 'くしかつ', 'kushikatsu', '串揚げ'],
+      kaiseki: ['가이세키', '懐石', '会席', 'kaiseki', '정식', '코스'],
+      izakaya: ['이자카야', '居酒屋', 'いざかや', 'izakaya', '선술집'],
+      cafe: ['카페', 'カフェ', 'cafe', 'coffee', '커피', '喫茶', 'ケーキ', '디저트', 'dessert'],
+      tempura: ['텐푸라', '天ぷら', '天婦羅', 'てんぷら', 'tempura'],
+      udon: ['우동', 'うどん', 'udon', '讃岐'],
+      soba: ['소바', 'そば', 'soba', '蕎麦'],
+      curry: ['카레', 'カレー', 'curry', '커리']
     }
     
     try {
@@ -762,6 +791,32 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
             log(`📛 URL에서 이름: ${placeName}`)
           } catch {}
         }
+      }
+      
+      // 8. 도시 추출 (주소 또는 전체 텍스트에서)
+      const textToSearch = `${info.address || ''} ${info.name || ''} ${info.nameJp || ''} ${html}`.toLowerCase()
+      for (const [cityKey, patterns] of Object.entries(cityPatterns)) {
+        for (const pattern of patterns) {
+          if (textToSearch.includes(pattern.toLowerCase())) {
+            info.city = cityKey
+            log(`🏙️ 도시: ${cityKey}`)
+            break
+          }
+        }
+        if (info.city) break
+      }
+      
+      // 9. 카테고리 추출 (가게 이름에서)
+      const nameToSearch = `${info.name || ''} ${info.nameJp || ''}`.toLowerCase()
+      for (const [catKey, patterns] of Object.entries(categoryPatterns)) {
+        for (const pattern of patterns) {
+          if (nameToSearch.includes(pattern.toLowerCase())) {
+            info.category = catKey
+            log(`🍽️ 카테고리: ${catKey}`)
+            break
+          }
+        }
+        if (info.category) break
       }
       
     } catch (e) {
@@ -1105,6 +1160,8 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       if (result.rating && !form.rating) updates.rating = result.rating
       if (result.hours && !form.hours) updates.hours = result.hours
       if (result.priceRange && !form.priceRange) updates.priceRange = result.priceRange
+      if (result.city) updates.city = result.city
+      if (result.category) updates.category = result.category
       
       setForm(prev => ({ ...prev, ...updates }))
       setSearchMode(false)
@@ -1115,6 +1172,8 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       const extracted = ['좌표']
       if (result.name || result.nameJp) extracted.push('가게 이름')
       if (result.address) extracted.push('주소')
+      if (result.city) extracted.push('도시')
+      if (result.category) extracted.push('카테고리')
       if (result.rating) extracted.push('평점')
       if (result.hours) extracted.push('영업시간')
       if (result.priceRange) extracted.push('가격대')
@@ -1123,11 +1182,13 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       msg += `📍 좌표: ${result.lat}, ${result.lng}\n`
       if (result.name || result.nameJp) msg += `📛 이름: ${result.nameJp || result.name}\n`
       if (result.address) msg += `🏠 주소: ${result.address}\n`
+      if (result.city) msg += `🏙️ 도시: ${result.city}\n`
+      if (result.category) msg += `🍽️ 카테고리: ${result.category}\n`
       if (result.rating) msg += `⭐ 평점: ${result.rating}\n`
       if (result.hours) msg += `🕐 영업: ${result.hours}\n`
       if (result.priceRange) msg += `💰 가격: ${result.priceRange}\n`
       
-      if (extracted.length < 4) {
+      if (extracted.length < 5) {
         msg += '\n💡 나머지 정보는 직접 입력해주세요.'
       }
       
