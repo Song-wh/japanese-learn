@@ -456,151 +456,184 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     console.log(msg)
   }
 
-  // 단축 URL 확장 함수 - Capacitor HTTP 사용
-  const expandShortUrl = async (shortUrl) => {
-    addLog('=== URL 확장 시작 ===')
+  // HTML/URL에서 좌표 추출하는 헬퍼 함수
+  const extractCoordsFromText = (text, log = () => {}) => {
+    // 다양한 좌표 패턴 (우선순위 순)
+    const patterns = [
+      { regex: /@(-?\d+\.\d{4,}),(-?\d+\.\d{4,})/, name: '@lat,lng' },
+      { regex: /!3d(-?\d+\.\d{4,})!4d(-?\d+\.\d{4,})/, name: '!3d!4d', swap: false },
+      { regex: /!4d(-?\d+\.\d{4,})!3d(-?\d+\.\d{4,})/, name: '!4d!3d', swap: true },
+      { regex: /"lat":?\s*(-?\d+\.\d{4,}).*?"lng":?\s*(-?\d+\.\d{4,})/, name: 'lat/lng json' },
+      { regex: /\\"lat\\":(-?\d+\.\d{4,}),\\"lng\\":(-?\d+\.\d{4,})/, name: 'escaped lat/lng' },
+      { regex: /center=(-?\d+\.\d{4,})%2C(-?\d+\.\d{4,})/, name: 'center=' },
+      { regex: /ll=(-?\d+\.\d{4,}),(-?\d+\.\d{4,})/, name: 'll=' },
+      { regex: /\[null,null,(-?\d+\.\d{4,}),(-?\d+\.\d{4,})\]/, name: '[null,null,lat,lng]' },
+      { regex: /\[(-?\d+\.\d{5,}),(-?\d+\.\d{5,})\]/, name: '[lat,lng]' },
+      { regex: /,(-?\d+\.\d{6,}),(-?\d+\.\d{6,}),/, name: ',lat,lng,' },
+      { regex: /"(-?\d{2}\.\d{5,})","(-?\d{2,3}\.\d{5,})"/, name: '"lat","lng"' },
+      { regex: /\\u0022(-?\d{2}\.\d{5,})\\u0022.*?\\u0022(-?\d{2,3}\.\d{5,})\\u0022/, name: 'unicode' },
+    ]
     
-    // 방법 1: Capacitor HTTP 직접 요청 (CORS 없음!)
+    for (const { regex, name, swap } of patterns) {
+      const match = text.match(regex)
+      if (match) {
+        let lat = parseFloat(match[1])
+        let lng = parseFloat(match[2])
+        if (swap) [lat, lng] = [lng, lat]
+        
+        // 일본/아시아 범위 체크 (더 넓게)
+        if (lat >= 20 && lat <= 50 && lng >= 100 && lng <= 160) {
+          log(`✅ 패턴 '${name}'에서 발견: ${lat}, ${lng}`)
+          return { lat, lng }
+        }
+      }
+    }
+    
+    // 마지막 시도: 연속된 숫자쌍에서 좌표 찾기
+    const allNums = [...text.matchAll(/(\d{2,3}\.\d{5,})/g)].map(m => parseFloat(m[1]))
+    for (let i = 0; i < allNums.length - 1; i++) {
+      const a = allNums[i], b = allNums[i + 1]
+      if (a >= 20 && a <= 50 && b >= 100 && b <= 160) {
+        log(`✅ 숫자쌍에서 발견: ${a}, ${b}`)
+        return { lat: a, lng: b }
+      }
+    }
+    
+    return null
+  }
+
+  // 단축 URL 확장 함수 - 완전히 재작성
+  const expandShortUrl = async (shortUrl) => {
+    addLog('=== 단축 URL 분석 시작 ===')
+    addLog(`입력: ${shortUrl.substring(0, 50)}...`)
+    
+    const collectedUrls = []
+    const collectedHtml = []
+    
+    // 방법 1: Capacitor HTTP로 리다이렉트 따라가기
     try {
-      addLog('Capacitor HTTP 시도...')
-      const response = await CapacitorHttp.get({
+      addLog('1️⃣ Capacitor HTTP 요청...')
+      
+      // 첫 번째 요청 (단축 URL)
+      const resp1 = await CapacitorHttp.get({
         url: shortUrl,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36'
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'ja,ko;q=0.9,en;q=0.8'
         }
       })
       
-      addLog(`응답: ${response.status}`)
-      
-      // 리다이렉션된 URL 확인
-      if (response.url && response.url.includes('google.com/maps')) {
-        addLog(`✅ Google Maps URL 발견!`)
+      addLog(`응답 상태: ${resp1.status}`)
+      if (resp1.url) {
+        addLog(`리다이렉트 URL: ${resp1.url.substring(0, 60)}...`)
+        collectedUrls.push(resp1.url)
+      }
+      if (resp1.data) {
+        const html1 = typeof resp1.data === 'string' ? resp1.data : JSON.stringify(resp1.data)
+        collectedHtml.push(html1)
+        addLog(`HTML 크기: ${html1.length} bytes`)
         
-        // 좌표가 이미 있으면 바로 반환
-        if (response.url.includes('@')) {
-          addLog(`URL에 좌표 있음!`)
-          return response.url
-        }
+        // HTML에서 추가 URL 추출
+        const urlMatches = html1.match(/https:\/\/www\.google\.[a-z.]+\/maps\/[^"'\s<>\\]+/gi) || []
+        collectedUrls.push(...urlMatches)
         
-        // 좌표 없으면 한번 더 요청해서 HTML에서 추출
-        addLog(`좌표 없음, HTML 파싱 시도...`)
-        try {
-          const pageResponse = await CapacitorHttp.get({
-            url: response.url,
-            headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36' }
-          })
-          
-                  if (pageResponse.data) {
-                    const html = typeof pageResponse.data === 'string' ? pageResponse.data : JSON.stringify(pageResponse.data)
-                    
-                    // 다양한 좌표 패턴 시도 (더 많은 패턴 추가)
-                    const patterns = [
-                      /@(-?\d+\.\d+),(-?\d+\.\d+)/,                              // @lat,lng
-                      /center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/,                      // center=lat%2Clng
-                      /\\"lat\\":(-?\d+\.\d+),\\"lng\\":(-?\d+\.\d+)/,           // "lat":xx,"lng":xx
-                      /"lat":(-?\d+\.\d+),"lng":(-?\d+\.\d+)/,                   // "lat":xx,"lng":xx (unescaped)
-                      /ll=(-?\d+\.\d+),(-?\d+\.\d+)/,                            // ll=lat,lng
-                      /\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]/,                 // [null,null,lat,lng]
-                      /!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/,                          // !3d lat !4d lng (data params)
-                      /\[(-?\d+\.\d{4,}),(-?\d+\.\d{4,})\]/,                     // [lat,lng] 소수점 4자리 이상
-                      /,(-?\d+\.\d{5,}),(-?\d+\.\d{5,}),/,                       // ,lat,lng, 사이에 있는 좌표
-                      /APP_INITIALIZATION_STATE.*?(-?\d{2,3}\.\d{5,}).*?(-?\d{2,3}\.\d{5,})/s, // APP_INITIALIZATION_STATE
-                      /\\u0022(-?\d{2}\.\d{5,})\\u0022.*?\\u0022(-?\d{2,3}\.\d{5,})\\u0022/,   // unicode escaped
-                      /pb=.*?!2d(-?\d+\.\d+)!3d(-?\d+\.\d+)/,                    // pb= 파라미터 (lng, lat 순서!)
-                      /"(-?\d{2}\.\d{6,})","(-?\d{2,3}\.\d{6,})"/,               // 문자열 좌표
-                    ]
-                    
-                    for (let i = 0; i < patterns.length; i++) {
-                      const pattern = patterns[i]
-                      const match = html.match(pattern)
-                      if (match) {
-                        let lat = match[1]
-                        let lng = match[2]
-                        
-                        // pb= 파라미터는 lng, lat 순서이므로 swap
-                        if (i === 11) { // pb= pattern
-                          [lat, lng] = [lng, lat]
-                        }
-                        
-                        // 유효한 좌표인지 검증 (일본 범위: 위도 24~46, 경도 122~154)
-                        const latNum = parseFloat(lat)
-                        const lngNum = parseFloat(lng)
-                        if (latNum >= 20 && latNum <= 50 && lngNum >= 120 && lngNum <= 160) {
-                          addLog(`✅ HTML 패턴${i+1}에서 좌표 발견: ${lat}, ${lng}`)
-                          return `https://www.google.com/maps/place/@${lat},${lng},17z`
-                        }
-                      }
-                    }
-                    
-                    // 마지막 시도: 모든 숫자 쌍 중 좌표처럼 보이는 것 찾기
-                    const allCoords = html.matchAll(/(-?\d{2}\.\d{5,})/g)
-                    const nums = [...allCoords].map(m => parseFloat(m[1]))
-                    for (let i = 0; i < nums.length - 1; i++) {
-                      const n1 = nums[i], n2 = nums[i+1]
-                      // 일본 좌표 범위 체크
-                      if (n1 >= 24 && n1 <= 46 && n2 >= 122 && n2 <= 154) {
-                        addLog(`✅ 숫자쌍에서 좌표 추정: ${n1}, ${n2}`)
-                        return `https://www.google.com/maps/place/@${n1},${n2},17z`
-                      }
-                    }
-                    
-                    addLog(`HTML에서 좌표 못찾음 (${html.length} bytes)`)
-                  }
-        } catch (e) {
-          addLog(`HTML 요청 오류: ${e.message}`)
-        }
+        // meta refresh URL 추출
+        const metaMatch = html1.match(/content=["'][^"']*url=([^"'\s]+)/i)
+        if (metaMatch) collectedUrls.push(metaMatch[1])
         
-        // 좌표 못 찾아도 URL 반환 (사용자가 수동으로 좌표 입력)
-        return response.url
+        // window.location URL 추출
+        const locMatch = html1.match(/window\.location\s*=\s*["']([^"']+)/i)
+        if (locMatch) collectedUrls.push(locMatch[1])
       }
       
-      // HTML에서 Google Maps URL 또는 좌표 추출
-      if (response.data) {
-        const html = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
-        
-        // Google Maps URL 추출 (다양한 패턴)
-        const urlPatterns = [
-          /https:\/\/www\.google\.com\/maps\/place\/[^"'\s<>]+/gi,
-          /https:\/\/maps\.google\.com\/maps[^"'\s<>]+/gi,
-          /https:\/\/www\.google\.[a-z.]+\/maps[^"'\s<>]+/gi
-        ]
-        
-        for (const pattern of urlPatterns) {
-          const match = html.match(pattern)
-          if (match && match[0]) {
-            addLog(`✅ HTML에서 URL 발견!`)
-            return match[0]
+      // 구글맵 URL 찾았으면 다시 요청
+      const googleMapUrl = collectedUrls.find(u => u.includes('google.com/maps') || u.includes('google.co.jp/maps'))
+      if (googleMapUrl && googleMapUrl !== shortUrl) {
+        addLog(`2️⃣ 구글맵 URL 재요청...`)
+        try {
+          const resp2 = await CapacitorHttp.get({
+            url: googleMapUrl,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
+              'Accept': 'text/html',
+              'Accept-Language': 'ja,ko;q=0.9'
+            }
+          })
+          
+          if (resp2.url) {
+            addLog(`최종 URL: ${resp2.url.substring(0, 60)}...`)
+            collectedUrls.push(resp2.url)
           }
+          if (resp2.data) {
+            const html2 = typeof resp2.data === 'string' ? resp2.data : JSON.stringify(resp2.data)
+            collectedHtml.push(html2)
+            addLog(`HTML2 크기: ${html2.length} bytes`)
+          }
+        } catch (e) {
+          addLog(`재요청 실패: ${e.message}`)
         }
-        
-        // 좌표만 추출
-        const coordMatch = html.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
-        if (coordMatch) {
-          addLog(`✅ 좌표: ${coordMatch[1]}, ${coordMatch[2]}`)
-          return `https://www.google.com/maps/place/@${coordMatch[1]},${coordMatch[2]},17z`
-        }
-        
-        addLog('HTML에서 URL/좌표 못찾음')
       }
     } catch (e) {
       addLog(`Capacitor HTTP 오류: ${e.message}`)
     }
     
-    // 방법 2: 일반 fetch fallback
-    addLog('fetch fallback 시도...')
+    // 수집된 모든 URL에서 좌표 추출 시도
+    addLog(`3️⃣ URL ${collectedUrls.length}개에서 좌표 검색...`)
+    for (const url of collectedUrls) {
+      const coords = extractCoordsFromText(url, addLog)
+      if (coords) {
+        return { ...coords, url }
+      }
+    }
+    
+    // 수집된 모든 HTML에서 좌표 추출 시도
+    addLog(`4️⃣ HTML ${collectedHtml.length}개에서 좌표 검색...`)
+    for (const html of collectedHtml) {
+      const coords = extractCoordsFromText(html, addLog)
+      if (coords) {
+        return { ...coords, url: collectedUrls[0] || shortUrl }
+      }
+    }
+    
+    // 방법 2: fetch fallback (브라우저 환경)
+    addLog('5️⃣ fetch fallback 시도...')
     try {
-      const response = await fetch(shortUrl, {
+      const resp = await fetch(shortUrl, {
         redirect: 'follow',
+        mode: 'cors',
         headers: { 'Accept': 'text/html' }
       })
-      const html = await response.text()
-      const coordMatch = html.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
-      if (coordMatch) {
-        addLog(`✅ fetch 좌표: ${coordMatch[1]}, ${coordMatch[2]}`)
-        return `https://www.google.com/maps/place/@${coordMatch[1]},${coordMatch[2]},17z`
+      const html = await resp.text()
+      addLog(`fetch 응답: ${html.length} bytes`)
+      
+      const coords = extractCoordsFromText(html, addLog)
+      if (coords) {
+        return { ...coords, url: resp.url }
       }
     } catch (e) {
-      addLog(`fetch 오류: ${e.message}`)
+      addLog(`fetch 실패: ${e.message}`)
+    }
+    
+    // 방법 3: URL 언쇼트 서비스 사용
+    addLog('6️⃣ 외부 언쇼트 서비스 시도...')
+    try {
+      const unshortResp = await CapacitorHttp.get({
+        url: `https://unshorten.me/json/${encodeURIComponent(shortUrl)}`,
+        headers: { 'Accept': 'application/json' }
+      })
+      if (unshortResp.data) {
+        const data = typeof unshortResp.data === 'string' ? JSON.parse(unshortResp.data) : unshortResp.data
+        if (data.resolved_url) {
+          addLog(`언쇼트 결과: ${data.resolved_url.substring(0, 50)}...`)
+          const coords = extractCoordsFromText(data.resolved_url, addLog)
+          if (coords) {
+            return { ...coords, url: data.resolved_url }
+          }
+        }
+      }
+    } catch (e) {
+      addLog(`언쇼트 서비스 실패: ${e.message}`)
     }
 
     addLog('❌ 모든 방법 실패')
@@ -610,12 +643,14 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
   // 구글맵 URL 파싱해서 데이터 가져오기
   const handleParseUrl = async () => {
     setParseError('')
+    setDebugLog([]) // 로그 초기화
     
     if (!urlInput.includes('google.com/maps') && !urlInput.includes('goo.gl/maps') && !urlInput.includes('maps.app.goo.gl')) {
       setParseError('구글맵 URL이 아닙니다. 구글맵에서 공유 > 링크 복사를 해주세요.')
       return
     }
 
+    let coords = null
     let urlToParse = urlInput
 
     // 단축 URL인 경우 확장 시도
@@ -623,27 +658,30 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       setIsExpanding(true)
       
       try {
-        const expandedUrl = await expandShortUrl(urlInput)
-        if (expandedUrl) {
-          urlToParse = expandedUrl
-          console.log('✅ Expanded URL:', expandedUrl)
+        const result = await expandShortUrl(urlInput)
+        if (result && result.lat && result.lng) {
+          // 직접 좌표를 얻었으면 바로 사용
+          coords = { lat: result.lat, lng: result.lng }
+          urlToParse = result.url || urlInput
+          addLog(`✅ 좌표 추출 성공!`)
         } else {
-          // 확장 실패 시 새 탭에서 열기
+          // 확장 실패
           setIsExpanding(false)
-          window.open(urlInput, '_blank')
-          setParseError('URL 확장 실패. 방금 열린 구글맵에서 주소창의 전체 URL을 복사해주세요.')
+          setParseError('좌표를 찾을 수 없습니다. 디버그 로그를 확인해주세요.')
           return
         }
       } catch (e) {
         setIsExpanding(false)
-        window.open(urlInput, '_blank')
-        setParseError('URL 확장 실패. 방금 열린 구글맵에서 주소창의 전체 URL을 복사해주세요.')
+        addLog(`❌ 오류: ${e.message}`)
+        setParseError(`오류 발생: ${e.message}`)
         return
       }
       setIsExpanding(false)
+    } else {
+      // 일반 URL에서 좌표 추출
+      coords = parseGoogleMapsUrl(urlToParse)
     }
 
-    const coords = parseGoogleMapsUrl(urlToParse)
     const info = parseGoogleMapsInfo(urlToParse)
 
     if (coords) {
@@ -667,6 +705,7 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       setForm(prev => ({ ...prev, ...updates }))
       setSearchMode(false)
       setUrlInput('')
+      setDebugLog([])
       
       // 어떤 정보를 가져왔는지 알려주기
       const extracted = []
@@ -674,9 +713,9 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       if (info.nameJp) extracted.push('가게 이름')
       if (info.address) extracted.push('주소')
       
-      alert(`✅ ${extracted.join(', ')}를 가져왔습니다!${extracted.length < 3 ? '\n💡 나머지 정보는 직접 입력해주세요.' : ''}`)
+      alert(`✅ ${extracted.join(', ')}를 가져왔습니다!\n\n위도: ${coords.lat}\n경도: ${coords.lng}${extracted.length < 3 ? '\n\n💡 나머지 정보는 직접 입력해주세요.' : ''}`)
     } else {
-      setParseError('좌표를 찾을 수 없습니다. 구글맵 브라우저 주소창에서 URL을 복사해주세요.')
+      setParseError('좌표를 찾을 수 없습니다. 디버그 로그를 확인해주세요.')
     }
   }
 
