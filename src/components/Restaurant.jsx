@@ -612,15 +612,29 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
           log(`📛 한글→일본어 이름: ${extractedName}`)
           log(`📍 한글→일본어 주소: ${extractedAddress}`)
         }
-        // 특수 패턴: 주소가 앞에 있고 가게 이름이 뒤에 있는 경우
-        // 예: "〒810-0801 Fukuoka, ... 야키니쿠 얏짱"
-        // 마지막에 일본어/한국어 단어가 있으면 그게 가게 이름일 가능성
-        else if (title.match(/^(〒?\d{3}-?\d{4}[^가-힣ぁ-んァ-ン一-龥]+)\s+([가-힣ぁ-んァ-ン一-龥].+)$/u)) {
-          const reversePattern = title.match(/^(〒?\d{3}-?\d{4}[^가-힣ぁ-んァ-ン一-龥]+)\s+([가-힣ぁ-んァ-ン一-龥].+)$/u)
-          extractedAddress = reversePattern[1].trim()
-          extractedName = reversePattern[2].trim()
-          log(`📛 역순 이름: ${extractedName}`)
-          log(`📍 역순 주소: ${extractedAddress}`)
+        // 특수 패턴 1: 우편번호로 시작하고 맨 뒤에 한글 이름
+        // 예: "〒812-0862 Fukuoka, ... 미네마쓰 본점"
+        // 맨 뒤 2-4개 한글 단어가 가게 이름
+        else if (title.match(/^〒?\d{3}-?\d{4}/)) {
+          // 맨 뒤에서 한글 단어 찾기 (공백으로 구분된 2-4개 단어)
+          const endKoreanMatch = title.match(/\s+([가-힣]+(?:\s+[가-힣]+){0,3})$/u)
+          if (endKoreanMatch) {
+            extractedName = endKoreanMatch[1].trim()
+            extractedAddress = title.slice(0, title.lastIndexOf(endKoreanMatch[0])).trim()
+            log(`📛 우편번호+한글 이름: ${extractedName}`)
+            log(`📍 우편번호+한글 주소: ${extractedAddress}`)
+          }
+        }
+        // 특수 패턴 2: 맨 뒤에 일본어 이름
+        // 예: "〒810-0801 Fukuoka, ... 야키니쿠 얏짱" (일본어 가게명)
+        else if (title.match(/^〒?\d{3}-?\d{4}.*\s+([ぁ-んァ-ン一-龥]+(?:\s+[ぁ-んァ-ン一-龥]+)*)$/u)) {
+          const endJapaneseMatch = title.match(/\s+([ぁ-んァ-ン一-龥]+(?:\s+[ぁ-んァ-ン一-龥]+)*)$/u)
+          if (endJapaneseMatch) {
+            extractedName = endJapaneseMatch[1].trim()
+            extractedAddress = title.slice(0, title.lastIndexOf(endJapaneseMatch[0])).trim()
+            log(`📛 우편번호+일본어 이름: ${extractedName}`)
+            log(`📍 우편번호+일본어 주소: ${extractedAddress}`)
+          }
         } else {
           // 패턴 1: "가게이름 숫자-숫자-숫자 주소..." (일본 주소 형태)
           const addrPattern1 = title.match(/^(.+?)\s+(\d+[-ー]\d+[-ー]\d+.*)$/u)
