@@ -1,6 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
-import { CapacitorHttp } from '@capacitor/core'
 import { categories, cities } from '../data/restaurants'
+
+// CapacitorHttp를 동적으로 로드
+const getCapacitorHttp = async () => {
+  try {
+    const { CapacitorHttp } = await import('@capacitor/core')
+    return CapacitorHttp
+  } catch (e) {
+    console.log('CapacitorHttp not available')
+    return null
+  }
+}
 import { getRestaurants, saveRestaurants, addRestaurant, deleteRestaurant, updateRestaurant } from '../utils/restaurantStorage'
 import CustomSelect from './CustomSelect'
 
@@ -791,12 +801,16 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       'Cookie': 'CONSENT=YES+cb; SOCS=CAISHAgCEhJnd3NfMjAyNDA1MDItMF9SQzEaAmtvIAEaBgiA_LmyBg'
     }
     
+    // CapacitorHttp 동적 로드
+    const CapacitorHttp = await getCapacitorHttp()
+    
     // 방법 1: Capacitor HTTP로 리다이렉트 따라가기
-    try {
-      addLog('1️⃣ Capacitor HTTP 요청...')
-      
-      // 첫 번째 요청 (단축 URL)
-      const resp1 = await CapacitorHttp.get({
+    if (CapacitorHttp) {
+      try {
+        addLog('1️⃣ Capacitor HTTP 요청...')
+        
+        // 첫 번째 요청 (단축 URL)
+        const resp1 = await CapacitorHttp.get({
         url: shortUrl,
         headers: defaultHeaders
       })
@@ -913,8 +927,11 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
           addLog(`재요청 실패: ${e.message}`)
         }
       }
-    } catch (e) {
-      addLog(`Capacitor HTTP 오류: ${e.message}`)
+      } catch (e) {
+        addLog(`Capacitor HTTP 오류: ${e.message}`)
+      }
+    } else {
+      addLog('CapacitorHttp 사용 불가, fetch로 진행')
     }
     
     // 수집된 모든 URL에서 좌표 추출 시도
@@ -960,71 +977,73 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       addLog(`fetch 실패: ${e.message}`)
     }
     
-    // 방법 3: URL 언쇼트 서비스 사용
-    addLog('6️⃣ 외부 언쇼트 서비스 시도...')
-    try {
-      const unshortResp = await CapacitorHttp.get({
-        url: `https://unshorten.me/json/${encodeURIComponent(shortUrl)}`,
-        headers: { 'Accept': 'application/json' }
-      })
-      if (unshortResp.data) {
-        const data = typeof unshortResp.data === 'string' ? JSON.parse(unshortResp.data) : unshortResp.data
-        if (data.resolved_url) {
-          let resolvedUrl = data.resolved_url
-          addLog(`언쇼트 결과: ${resolvedUrl.substring(0, 50)}...`)
-          
-          // consent.google.com이면 continue URL 추출
-          if (resolvedUrl.includes('consent.google')) {
-            addLog('⚠️ 언쇼트 결과가 동의 페이지, continue 추출...')
-            const continueUrl = extractContinueUrl(resolvedUrl)
-            if (continueUrl) {
-              resolvedUrl = continueUrl
-              addLog(`continue URL: ${resolvedUrl.substring(0, 50)}...`)
-              
-              // continue URL로 다시 요청
-              try {
-                const followResp = await CapacitorHttp.get({
-                  url: resolvedUrl,
-                  headers: defaultHeaders
-                })
+    // 방법 3: URL 언쇼트 서비스 사용 (CapacitorHttp 필요)
+    if (CapacitorHttp) {
+      addLog('6️⃣ 외부 언쇼트 서비스 시도...')
+      try {
+        const unshortResp = await CapacitorHttp.get({
+          url: `https://unshorten.me/json/${encodeURIComponent(shortUrl)}`,
+          headers: { 'Accept': 'application/json' }
+        })
+        if (unshortResp.data) {
+          const data = typeof unshortResp.data === 'string' ? JSON.parse(unshortResp.data) : unshortResp.data
+          if (data.resolved_url) {
+            let resolvedUrl = data.resolved_url
+            addLog(`언쇼트 결과: ${resolvedUrl.substring(0, 50)}...`)
+            
+            // consent.google.com이면 continue URL 추출
+            if (resolvedUrl.includes('consent.google')) {
+              addLog('⚠️ 언쇼트 결과가 동의 페이지, continue 추출...')
+              const continueUrl = extractContinueUrl(resolvedUrl)
+              if (continueUrl) {
+                resolvedUrl = continueUrl
+                addLog(`continue URL: ${resolvedUrl.substring(0, 50)}...`)
                 
-                if (followResp.url && !followResp.url.includes('consent')) {
-                  addLog(`최종 URL: ${followResp.url.substring(0, 50)}...`)
+                // continue URL로 다시 요청
+                try {
+                  const followResp = await CapacitorHttp.get({
+                    url: resolvedUrl,
+                    headers: defaultHeaders
+                  })
                   
-                  const html = followResp.data ? 
-                    (typeof followResp.data === 'string' ? followResp.data : JSON.stringify(followResp.data)) : ''
-                  
-                  // URL에서 좌표 추출
-                  const coords = extractCoordsFromText(followResp.url, addLog)
-                  if (coords) {
-                    const placeInfo = extractPlaceInfoFromHtml(html, addLog)
-                    return { ...coords, ...placeInfo, url: followResp.url }
-                  }
-                  
-                  // HTML에서 좌표 추출
-                  if (html) {
-                    addLog(`HTML 크기: ${html.length} bytes`)
-                    const htmlCoords = extractCoordsFromText(html, addLog)
-                    if (htmlCoords) {
+                  if (followResp.url && !followResp.url.includes('consent')) {
+                    addLog(`최종 URL: ${followResp.url.substring(0, 50)}...`)
+                    
+                    const html = followResp.data ? 
+                      (typeof followResp.data === 'string' ? followResp.data : JSON.stringify(followResp.data)) : ''
+                    
+                    // URL에서 좌표 추출
+                    const coords = extractCoordsFromText(followResp.url, addLog)
+                    if (coords) {
                       const placeInfo = extractPlaceInfoFromHtml(html, addLog)
-                      return { ...htmlCoords, ...placeInfo, url: followResp.url }
+                      return { ...coords, ...placeInfo, url: followResp.url }
+                    }
+                    
+                    // HTML에서 좌표 추출
+                    if (html) {
+                      addLog(`HTML 크기: ${html.length} bytes`)
+                      const htmlCoords = extractCoordsFromText(html, addLog)
+                      if (htmlCoords) {
+                        const placeInfo = extractPlaceInfoFromHtml(html, addLog)
+                        return { ...htmlCoords, ...placeInfo, url: followResp.url }
+                      }
                     }
                   }
+                } catch (e) {
+                  addLog(`continue 요청 실패: ${e.message}`)
                 }
-              } catch (e) {
-                addLog(`continue 요청 실패: ${e.message}`)
               }
             }
-          }
-          
-          const coords = extractCoordsFromText(resolvedUrl, addLog)
-          if (coords) {
-            return { ...coords, url: resolvedUrl }
+            
+            const coords = extractCoordsFromText(resolvedUrl, addLog)
+            if (coords) {
+              return { ...coords, url: resolvedUrl }
+            }
           }
         }
+      } catch (e) {
+        addLog(`언쇼트 서비스 실패: ${e.message}`)
       }
-    } catch (e) {
-      addLog(`언쇼트 서비스 실패: ${e.message}`)
     }
 
     addLog('❌ 모든 방법 실패')
