@@ -566,14 +566,53 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
         let title = ogTitleMatch[1]
         // " - Google Maps" 제거
         title = title.replace(/\s*[-–]\s*Google\s*(Maps|マップ|지도)?.*$/i, '').trim()
-        // 일본어가 포함되어 있으면 nameJp로
-        if (/[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/.test(title)) {
-          info.nameJp = title
-          info.name = title // 일단 같은 값
-        } else {
-          info.name = title
+        
+        // 이름과 주소 분리 시도
+        let extractedName = title
+        let extractedAddress = null
+        
+        // 패턴 1: "가게이름 숫자-숫자-숫자 주소..." (일본 주소 형태)
+        const addrPattern1 = title.match(/^(.+?)\s+(\d+[-ー]\d+[-ー]\d+.*)$/u)
+        // 패턴 2: "가게이름 숫자 Chome..." (영문 주소)
+        const addrPattern2 = title.match(/^(.+?)\s+(\d+\s+Chome.*)$/i)
+        // 패턴 3: "가게이름 〒우편번호..." 
+        const addrPattern3 = title.match(/^(.+?)\s+(〒?\d{3}-?\d{4}.*)$/u)
+        // 패턴 4: "가게이름, 주소, 주소..." (쉼표 구분)
+        const addrPattern4 = title.match(/^([^,，]+)[,，]\s*(.+)$/u)
+        // 패턴 5: "가게이름 도쿄/오사카/..." (도시명으로 분리)
+        const addrPattern5 = title.match(/^(.+?)\s+(Tokyo|Osaka|Kyoto|Fukuoka|Hokkaido|東京|大阪|京都|福岡|北海道.*)$/iu)
+        
+        const addrMatch = addrPattern1 || addrPattern2 || addrPattern3 || addrPattern5
+        
+        if (addrMatch) {
+          extractedName = addrMatch[1].trim()
+          extractedAddress = addrMatch[2].trim()
+          log(`📛 이름 분리: ${extractedName}`)
+          log(`📍 주소 분리: ${extractedAddress}`)
+        } else if (addrPattern4) {
+          // 쉼표로 분리된 경우
+          extractedName = addrPattern4[1].trim()
+          extractedAddress = addrPattern4[2].trim()
+          log(`📛 이름(쉼표): ${extractedName}`)
+          log(`📍 주소(쉼표): ${extractedAddress}`)
         }
-        log(`📛 이름: ${title}`)
+        
+        // 일본어가 포함되어 있으면 nameJp로
+        if (/[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/.test(extractedName)) {
+          info.nameJp = extractedName
+          info.name = extractedName
+        } else {
+          info.name = extractedName
+        }
+        
+        // 주소가 추출됐으면 저장
+        if (extractedAddress && !info.address) {
+          // "일본" 또는 "Japan" 제거
+          extractedAddress = extractedAddress.replace(/\s*(일본|Japan|日本)\s*$/i, '').trim()
+          info.address = extractedAddress
+        }
+        
+        log(`📛 최종 이름: ${extractedName}`)
       }
       
       // 2. og:description 또는 meta description에서 주소 추출
