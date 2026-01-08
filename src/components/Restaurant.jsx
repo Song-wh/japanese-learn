@@ -573,11 +573,21 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
         let extractedName = title
         let extractedAddress = null
         
+        // 특수 패턴 0: 한글 가게명 + 일본어 주소
+        // 예: "타카오 텐푸라 캐널시티점 シネマストリート ４F 福岡市..."
+        // 한글로 시작하고, 일본어(히라가나/가타카나/한자)가 시작되는 지점에서 분리
+        const koreanThenJapanese = title.match(/^([가-힣\s]+(?:[가-힣]+점|[가-힣]+관|[가-힣]+점)?)\s+([ぁ-んァ-ン一-龥].+)$/u)
+        if (koreanThenJapanese) {
+          extractedName = koreanThenJapanese[1].trim()
+          extractedAddress = koreanThenJapanese[2].trim()
+          log(`📛 한글→일본어 이름: ${extractedName}`)
+          log(`📍 한글→일본어 주소: ${extractedAddress}`)
+        }
         // 특수 패턴: 주소가 앞에 있고 가게 이름이 뒤에 있는 경우
         // 예: "〒810-0801 Fukuoka, ... 야키니쿠 얏짱"
         // 마지막에 일본어/한국어 단어가 있으면 그게 가게 이름일 가능성
-        const reversePattern = title.match(/^(〒?\d{3}-?\d{4}[^가-힣ぁ-んァ-ン一-龥]+)\s+([가-힣ぁ-んァ-ン一-龥].+)$/u)
-        if (reversePattern) {
+        else if (title.match(/^(〒?\d{3}-?\d{4}[^가-힣ぁ-んァ-ン一-龥]+)\s+([가-힣ぁ-んァ-ン一-龥].+)$/u)) {
+          const reversePattern = title.match(/^(〒?\d{3}-?\d{4}[^가-힣ぁ-んァ-ン一-龥]+)\s+([가-힣ぁ-んァ-ン一-龥].+)$/u)
           extractedAddress = reversePattern[1].trim()
           extractedName = reversePattern[2].trim()
           log(`📛 역순 이름: ${extractedName}`)
