@@ -566,35 +566,57 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
         let title = ogTitleMatch[1]
         // " - Google Maps" 제거
         title = title.replace(/\s*[-–]\s*Google\s*(Maps|マップ|지도)?.*$/i, '').trim()
+        // "일본" 또는 "Japan"으로 시작하면 제거
+        title = title.replace(/^(일본|Japan|日本)\s*/i, '').trim()
         
         // 이름과 주소 분리 시도
         let extractedName = title
         let extractedAddress = null
         
-        // 패턴 1: "가게이름 숫자-숫자-숫자 주소..." (일본 주소 형태)
-        const addrPattern1 = title.match(/^(.+?)\s+(\d+[-ー]\d+[-ー]\d+.*)$/u)
-        // 패턴 2: "가게이름 숫자 Chome..." (영문 주소)
-        const addrPattern2 = title.match(/^(.+?)\s+(\d+\s+Chome.*)$/i)
-        // 패턴 3: "가게이름 〒우편번호..." 
-        const addrPattern3 = title.match(/^(.+?)\s+(〒?\d{3}-?\d{4}.*)$/u)
-        // 패턴 4: "가게이름, 주소, 주소..." (쉼표 구분)
-        const addrPattern4 = title.match(/^([^,，]+)[,，]\s*(.+)$/u)
-        // 패턴 5: "가게이름 도쿄/오사카/..." (도시명으로 분리)
-        const addrPattern5 = title.match(/^(.+?)\s+(Tokyo|Osaka|Kyoto|Fukuoka|Hokkaido|東京|大阪|京都|福岡|北海道.*)$/iu)
-        
-        const addrMatch = addrPattern1 || addrPattern2 || addrPattern3 || addrPattern5
-        
-        if (addrMatch) {
-          extractedName = addrMatch[1].trim()
-          extractedAddress = addrMatch[2].trim()
-          log(`📛 이름 분리: ${extractedName}`)
-          log(`📍 주소 분리: ${extractedAddress}`)
-        } else if (addrPattern4) {
-          // 쉼표로 분리된 경우
-          extractedName = addrPattern4[1].trim()
-          extractedAddress = addrPattern4[2].trim()
-          log(`📛 이름(쉼표): ${extractedName}`)
-          log(`📍 주소(쉼표): ${extractedAddress}`)
+        // 특수 패턴: 주소가 앞에 있고 가게 이름이 뒤에 있는 경우
+        // 예: "〒810-0801 Fukuoka, ... 야키니쿠 얏짱"
+        // 마지막에 일본어/한국어 단어가 있으면 그게 가게 이름일 가능성
+        const reversePattern = title.match(/^(〒?\d{3}-?\d{4}[^가-힣ぁ-んァ-ン一-龥]+)\s+([가-힣ぁ-んァ-ン一-龥].+)$/u)
+        if (reversePattern) {
+          extractedAddress = reversePattern[1].trim()
+          extractedName = reversePattern[2].trim()
+          log(`📛 역순 이름: ${extractedName}`)
+          log(`📍 역순 주소: ${extractedAddress}`)
+        } else {
+          // 패턴 1: "가게이름 숫자-숫자-숫자 주소..." (일본 주소 형태)
+          const addrPattern1 = title.match(/^(.+?)\s+(\d+[-ー]\d+[-ー]\d+.*)$/u)
+          // 패턴 2: "가게이름 숫자 Chome..." (영문 주소)
+          const addrPattern2 = title.match(/^(.+?)\s+(\d+\s+Chome.*)$/i)
+          // 패턴 3: "가게이름 〒우편번호..." 
+          const addrPattern3 = title.match(/^(.+?)\s+(〒\d{3}-?\d{4}.*)$/u)
+          // 패턴 4: "가게이름, 주소, 주소..." (쉼표 구분)
+          const addrPattern4 = title.match(/^([^,，]+)[,，]\s*(.+)$/u)
+          // 패턴 5: "가게이름 도쿄/오사카/..." (도시명으로 분리)
+          const addrPattern5 = title.match(/^(.+?)\s+(Tokyo|Osaka|Kyoto|Fukuoka|Hokkaido|東京|大阪|京都|福岡|北海道.*)$/iu)
+          // 패턴 6: 맨 뒤에 한글/일본어 이름 (빌딩명 후 가게명)
+          // 예: "주소... ビル 1階 가게이름"
+          const addrPattern6 = title.match(/^(.+(?:階|F|ビル|빌딩))\s+([가-힣ぁ-んァ-ン一-龥].+)$/u)
+          
+          const addrMatch = addrPattern1 || addrPattern2 || addrPattern3 || addrPattern5
+          
+          if (addrPattern6) {
+            // 빌딩/층수 뒤에 가게 이름
+            extractedAddress = addrPattern6[1].trim()
+            extractedName = addrPattern6[2].trim()
+            log(`📛 빌딩 후 이름: ${extractedName}`)
+            log(`📍 빌딩 주소: ${extractedAddress}`)
+          } else if (addrMatch) {
+            extractedName = addrMatch[1].trim()
+            extractedAddress = addrMatch[2].trim()
+            log(`📛 이름 분리: ${extractedName}`)
+            log(`📍 주소 분리: ${extractedAddress}`)
+          } else if (addrPattern4) {
+            // 쉼표로 분리된 경우
+            extractedName = addrPattern4[1].trim()
+            extractedAddress = addrPattern4[2].trim()
+            log(`📛 이름(쉼표): ${extractedName}`)
+            log(`📍 주소(쉼표): ${extractedAddress}`)
+          }
         }
         
         // 일본어가 포함되어 있으면 nameJp로

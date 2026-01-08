@@ -1,6 +1,6 @@
 {
-  "appId": "com.songwh.japaneselearn",
-  "appName": "일본어",
+  "appId": "com.songwh.traveljapan",
+  "appName": "Travel Japan",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"

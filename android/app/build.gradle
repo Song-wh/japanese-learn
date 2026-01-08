@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "com.songwh.japaneselearn"
+    namespace "com.songwh.traveljapan"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.songwh.japaneselearn"
+        applicationId "com.songwh.traveljapan"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
