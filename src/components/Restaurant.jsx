@@ -547,6 +547,159 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     return null
   }
 
+  // HTML에서 장소 정보 추출 (이름, 주소, 평점 등)
+  const extractPlaceInfoFromHtml = (html, log = () => {}) => {
+    const info = {
+      name: null,
+      nameJp: null,
+      address: null,
+      rating: null,
+      hours: null,
+      priceRange: null
+    }
+    
+    try {
+      // 1. og:title에서 가게 이름 추출
+      const ogTitleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
+                           html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i)
+      if (ogTitleMatch) {
+        let title = ogTitleMatch[1]
+        // " - Google Maps" 제거
+        title = title.replace(/\s*[-–]\s*Google\s*(Maps|マップ|지도)?.*$/i, '').trim()
+        // 일본어가 포함되어 있으면 nameJp로
+        if (/[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/.test(title)) {
+          info.nameJp = title
+          info.name = title // 일단 같은 값
+        } else {
+          info.name = title
+        }
+        log(`📛 이름: ${title}`)
+      }
+      
+      // 2. og:description 또는 meta description에서 주소 추출
+      const descMatch = html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i) ||
+                        html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i)
+      if (descMatch) {
+        const desc = descMatch[1]
+        // 일본 주소 패턴 찾기 (도도부현 포함)
+        const addrMatch = desc.match(/(〒?\d{3}-?\d{4}\s*)?([都道府県]|東京|大阪|京都|北海道|神奈川|愛知|福岡|沖縄)[^\s,，。]+/u) ||
+                          desc.match(/日本[、,\s]*([^\s,，。]{5,30})/u)
+        if (addrMatch) {
+          info.address = addrMatch[0].replace(/^日本[、,\s]*/, '')
+          log(`📍 주소: ${info.address}`)
+        }
+      }
+      
+      // 3. 평점 추출 (다양한 패턴)
+      // 패턴: "4.5" 또는 "4,5" 형태로 평점 표시
+      const ratingPatterns = [
+        /"aggregateRating"[^}]*"ratingValue":\s*"?(\d+\.?\d*)"?/i,
+        /aria-label="[^"]*(\d+[.,]\d)\s*(점|stars?|out of)/i,
+        /class="[^"]*rating[^"]*"[^>]*>(\d+[.,]\d)/i,
+        /(\d+[.,]\d)\s*<\/span>\s*<span[^>]*>\s*\(\d+/,
+        /"rating":\s*(\d+\.?\d*)/,
+      ]
+      for (const pattern of ratingPatterns) {
+        const match = html.match(pattern)
+        if (match) {
+          const rating = parseFloat(match[1].replace(',', '.'))
+          if (rating >= 1 && rating <= 5) {
+            info.rating = rating
+            log(`⭐ 평점: ${rating}`)
+            break
+          }
+        }
+      }
+      
+      // 4. 가격대 추출
+      const pricePatterns = [
+        /(\$+|\¥+|￥+)/g,
+        /(¥?\d{3,4}[-~～]\d{3,5})/,
+        /price[^>]*>([^<]*(?:\$|\¥|￥)[^<]*)</i
+      ]
+      for (const pattern of pricePatterns) {
+        const match = html.match(pattern)
+        if (match) {
+          if (match[0].match(/^\$+$/) || match[0].match(/^[¥￥]+$/)) {
+            const len = match[0].length
+            if (len === 1) info.priceRange = '¥~1000'
+            else if (len === 2) info.priceRange = '¥1000~2000'
+            else if (len === 3) info.priceRange = '¥2000~4000'
+            else info.priceRange = '¥4000~'
+          } else {
+            info.priceRange = match[1] || match[0]
+          }
+          log(`💰 가격: ${info.priceRange}`)
+          break
+        }
+      }
+      
+      // 5. 영업시간 추출
+      const hoursPatterns = [
+        /"openingHours":\s*"([^"]+)"/i,
+        /(\d{1,2}:\d{2})\s*[-~～]\s*(\d{1,2}:\d{2})/,
+        /영업[^:：]*[:：]\s*([^\n<]{5,30})/,
+        /営業[^:：]*[:：]\s*([^\n<]{5,30})/,
+      ]
+      for (const pattern of hoursPatterns) {
+        const match = html.match(pattern)
+        if (match) {
+          if (match[2]) {
+            info.hours = `${match[1]}-${match[2]}`
+          } else {
+            info.hours = match[1]
+          }
+          log(`🕐 영업시간: ${info.hours}`)
+          break
+        }
+      }
+      
+      // 6. JSON-LD 스크립트에서 정보 추출
+      const jsonLdMatch = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/i)
+      if (jsonLdMatch) {
+        try {
+          const jsonData = JSON.parse(jsonLdMatch[1])
+          if (jsonData.name && !info.name) {
+            info.name = jsonData.name
+            if (/[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/.test(jsonData.name)) {
+              info.nameJp = jsonData.name
+            }
+          }
+          if (jsonData.address) {
+            const addr = typeof jsonData.address === 'string' ? jsonData.address : jsonData.address.streetAddress
+            if (addr && !info.address) info.address = addr
+          }
+          if (jsonData.aggregateRating?.ratingValue && !info.rating) {
+            info.rating = parseFloat(jsonData.aggregateRating.ratingValue)
+          }
+          log(`📋 JSON-LD에서 추가 정보 추출`)
+        } catch {}
+      }
+      
+      // 7. URL의 place 이름에서 추출 (fallback)
+      if (!info.name && !info.nameJp) {
+        const placeMatch = html.match(/\/maps\/place\/([^\/\@]+)/)
+        if (placeMatch) {
+          try {
+            const placeName = decodeURIComponent(placeMatch[1].replace(/\+/g, ' '))
+            if (/[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/.test(placeName)) {
+              info.nameJp = placeName
+              info.name = placeName
+            } else {
+              info.name = placeName
+            }
+            log(`📛 URL에서 이름: ${placeName}`)
+          } catch {}
+        }
+      }
+      
+    } catch (e) {
+      log(`정보 추출 오류: ${e.message}`)
+    }
+    
+    return info
+  }
+
   // consent.google.com URL에서 실제 URL 추출
   const extractContinueUrl = (url) => {
     if (!url.includes('consent.google')) return null
@@ -708,7 +861,10 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     for (const url of collectedUrls) {
       const coords = extractCoordsFromText(url, addLog)
       if (coords) {
-        return { ...coords, url }
+        // 가장 큰 HTML에서 장소 정보 추출
+        const biggestHtml = collectedHtml.sort((a, b) => b.length - a.length)[0] || ''
+        const placeInfo = extractPlaceInfoFromHtml(biggestHtml, addLog)
+        return { ...coords, ...placeInfo, url }
       }
     }
     
@@ -717,7 +873,9 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     for (const html of collectedHtml) {
       const coords = extractCoordsFromText(html, addLog)
       if (coords) {
-        return { ...coords, url: collectedUrls[0] || shortUrl }
+        // 같은 HTML에서 장소 정보도 추출
+        const placeInfo = extractPlaceInfoFromHtml(html, addLog)
+        return { ...coords, ...placeInfo, url: collectedUrls[0] || shortUrl }
       }
     }
     
@@ -734,7 +892,8 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       
       const coords = extractCoordsFromText(html, addLog)
       if (coords) {
-        return { ...coords, url: resp.url }
+        const placeInfo = extractPlaceInfoFromHtml(html, addLog)
+        return { ...coords, ...placeInfo, url: resp.url }
       }
     } catch (e) {
       addLog(`fetch 실패: ${e.message}`)
@@ -771,19 +930,23 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
                 if (followResp.url && !followResp.url.includes('consent')) {
                   addLog(`최종 URL: ${followResp.url.substring(0, 50)}...`)
                   
+                  const html = followResp.data ? 
+                    (typeof followResp.data === 'string' ? followResp.data : JSON.stringify(followResp.data)) : ''
+                  
                   // URL에서 좌표 추출
                   const coords = extractCoordsFromText(followResp.url, addLog)
                   if (coords) {
-                    return { ...coords, url: followResp.url }
+                    const placeInfo = extractPlaceInfoFromHtml(html, addLog)
+                    return { ...coords, ...placeInfo, url: followResp.url }
                   }
                   
                   // HTML에서 좌표 추출
-                  if (followResp.data) {
-                    const html = typeof followResp.data === 'string' ? followResp.data : JSON.stringify(followResp.data)
+                  if (html) {
                     addLog(`HTML 크기: ${html.length} bytes`)
                     const htmlCoords = extractCoordsFromText(html, addLog)
                     if (htmlCoords) {
-                      return { ...htmlCoords, url: followResp.url }
+                      const placeInfo = extractPlaceInfoFromHtml(html, addLog)
+                      return { ...htmlCoords, ...placeInfo, url: followResp.url }
                     }
                   }
                 }
@@ -817,7 +980,7 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       return
     }
 
-    let coords = null
+    let result = null
     let urlToParse = urlInput
 
     // 단축 URL인 경우 확장 시도
@@ -825,10 +988,8 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       setIsExpanding(true)
       
       try {
-        const result = await expandShortUrl(urlInput)
+        result = await expandShortUrl(urlInput)
         if (result && result.lat && result.lng) {
-          // 직접 좌표를 얻었으면 바로 사용
-          coords = { lat: result.lat, lng: result.lng }
           urlToParse = result.url || urlInput
           addLog(`✅ 좌표 추출 성공!`)
         } else {
@@ -846,28 +1007,27 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       setIsExpanding(false)
     } else {
       // 일반 URL에서 좌표 추출
-      coords = parseGoogleMapsUrl(urlToParse)
+      const coords = parseGoogleMapsUrl(urlToParse)
+      const info = parseGoogleMapsInfo(urlToParse)
+      if (coords) {
+        result = { ...coords, ...info }
+      }
     }
 
-    const info = parseGoogleMapsInfo(urlToParse)
-
-    if (coords) {
+    if (result && result.lat && result.lng) {
       // 추출된 정보로 폼 업데이트
       const updates = {
-        lat: coords.lat,
-        lng: coords.lng
+        lat: result.lat,
+        lng: result.lng
       }
       
-      // 이름이 비어있으면 추출된 이름 사용
-      if (info.name && !form.name) {
-        updates.name = info.name
-      }
-      if (info.nameJp && !form.nameJp) {
-        updates.nameJp = info.nameJp
-      }
-      if (info.address && !form.address) {
-        updates.address = info.address
-      }
+      // 추출된 정보 적용 (비어있는 필드만)
+      if (result.name && !form.name) updates.name = result.name
+      if (result.nameJp && !form.nameJp) updates.nameJp = result.nameJp
+      if (result.address && !form.address) updates.address = result.address
+      if (result.rating && !form.rating) updates.rating = result.rating
+      if (result.hours && !form.hours) updates.hours = result.hours
+      if (result.priceRange && !form.priceRange) updates.priceRange = result.priceRange
       
       setForm(prev => ({ ...prev, ...updates }))
       setSearchMode(false)
@@ -875,12 +1035,26 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       setDebugLog([])
       
       // 어떤 정보를 가져왔는지 알려주기
-      const extracted = []
-      if (coords) extracted.push('좌표')
-      if (info.nameJp) extracted.push('가게 이름')
-      if (info.address) extracted.push('주소')
+      const extracted = ['좌표']
+      if (result.name || result.nameJp) extracted.push('가게 이름')
+      if (result.address) extracted.push('주소')
+      if (result.rating) extracted.push('평점')
+      if (result.hours) extracted.push('영업시간')
+      if (result.priceRange) extracted.push('가격대')
       
-      alert(`✅ ${extracted.join(', ')}를 가져왔습니다!\n\n위도: ${coords.lat}\n경도: ${coords.lng}${extracted.length < 3 ? '\n\n💡 나머지 정보는 직접 입력해주세요.' : ''}`)
+      let msg = `✅ ${extracted.join(', ')}를 가져왔습니다!\n\n`
+      msg += `📍 좌표: ${result.lat}, ${result.lng}\n`
+      if (result.name || result.nameJp) msg += `📛 이름: ${result.nameJp || result.name}\n`
+      if (result.address) msg += `🏠 주소: ${result.address}\n`
+      if (result.rating) msg += `⭐ 평점: ${result.rating}\n`
+      if (result.hours) msg += `🕐 영업: ${result.hours}\n`
+      if (result.priceRange) msg += `💰 가격: ${result.priceRange}\n`
+      
+      if (extracted.length < 4) {
+        msg += '\n💡 나머지 정보는 직접 입력해주세요.'
+      }
+      
+      alert(msg)
     } else {
       setParseError('좌표를 찾을 수 없습니다. 디버그 로그를 확인해주세요.')
     }
