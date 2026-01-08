@@ -502,6 +502,20 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     return null
   }
 
+  // consent.google.com URL에서 실제 URL 추출
+  const extractContinueUrl = (url) => {
+    if (!url.includes('consent.google')) return null
+    const match = url.match(/continue=([^&]+)/)
+    if (match) {
+      try {
+        return decodeURIComponent(match[1])
+      } catch {
+        return match[1]
+      }
+    }
+    return null
+  }
+
   // 단축 URL 확장 함수 - 완전히 재작성
   const expandShortUrl = async (shortUrl) => {
     addLog('=== 단축 URL 분석 시작 ===')
@@ -510,6 +524,14 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     const collectedUrls = []
     const collectedHtml = []
     
+    // CONSENT 쿠키로 동의 페이지 우회
+    const defaultHeaders = {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'ja-JP,ja;q=0.9,ko;q=0.8',
+      'Cookie': 'CONSENT=YES+cb; SOCS=CAISHAgCEhJnd3NfMjAyNDA1MDItMF9SQzEaAmtvIAEaBgiA_LmyBg'
+    }
+    
     // 방법 1: Capacitor HTTP로 리다이렉트 따라가기
     try {
       addLog('1️⃣ Capacitor HTTP 요청...')
@@ -517,18 +539,44 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       // 첫 번째 요청 (단축 URL)
       const resp1 = await CapacitorHttp.get({
         url: shortUrl,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'ja,ko;q=0.9,en;q=0.8'
-        }
+        headers: defaultHeaders
       })
       
       addLog(`응답 상태: ${resp1.status}`)
-      if (resp1.url) {
-        addLog(`리다이렉트 URL: ${resp1.url.substring(0, 60)}...`)
-        collectedUrls.push(resp1.url)
+      
+      let currentUrl = resp1.url
+      
+      // consent.google.com 우회
+      if (currentUrl && currentUrl.includes('consent.google')) {
+        addLog('⚠️ 동의 페이지 감지, 우회 시도...')
+        const continueUrl = extractContinueUrl(currentUrl)
+        if (continueUrl) {
+          addLog(`continue URL: ${continueUrl.substring(0, 50)}...`)
+          currentUrl = continueUrl
+          
+          // continue URL로 다시 요청
+          try {
+            const consentResp = await CapacitorHttp.get({
+              url: continueUrl,
+              headers: defaultHeaders
+            })
+            if (consentResp.url) currentUrl = consentResp.url
+            if (consentResp.data) {
+              const html = typeof consentResp.data === 'string' ? consentResp.data : JSON.stringify(consentResp.data)
+              collectedHtml.push(html)
+              addLog(`동의 우회 후 HTML: ${html.length} bytes`)
+            }
+          } catch (e) {
+            addLog(`동의 우회 실패: ${e.message}`)
+          }
+        }
       }
+      
+      if (currentUrl) {
+        addLog(`리다이렉트 URL: ${currentUrl.substring(0, 60)}...`)
+        collectedUrls.push(currentUrl)
+      }
+      
       if (resp1.data) {
         const html1 = typeof resp1.data === 'string' ? resp1.data : JSON.stringify(resp1.data)
         collectedHtml.push(html1)
@@ -537,6 +585,18 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
         // HTML에서 추가 URL 추출
         const urlMatches = html1.match(/https:\/\/www\.google\.[a-z.]+\/maps\/[^"'\s<>\\]+/gi) || []
         collectedUrls.push(...urlMatches)
+        
+        // continue URL 추출 (동의 페이지인 경우)
+        const continueMatch = html1.match(/continue=([^&"']+)/i)
+        if (continueMatch) {
+          try {
+            const decoded = decodeURIComponent(continueMatch[1])
+            if (decoded.includes('google') && decoded.includes('maps')) {
+              collectedUrls.push(decoded)
+              addLog(`HTML에서 continue URL 발견`)
+            }
+          } catch {}
+        }
         
         // meta refresh URL 추출
         const metaMatch = html1.match(/content=["'][^"']*url=([^"'\s]+)/i)
@@ -548,22 +608,42 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       }
       
       // 구글맵 URL 찾았으면 다시 요청
-      const googleMapUrl = collectedUrls.find(u => u.includes('google.com/maps') || u.includes('google.co.jp/maps'))
+      const googleMapUrl = collectedUrls.find(u => 
+        (u.includes('google.com/maps') || u.includes('google.co.jp/maps')) && 
+        !u.includes('consent')
+      )
       if (googleMapUrl && googleMapUrl !== shortUrl) {
         addLog(`2️⃣ 구글맵 URL 재요청...`)
         try {
           const resp2 = await CapacitorHttp.get({
             url: googleMapUrl,
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile Safari/537.36',
-              'Accept': 'text/html',
-              'Accept-Language': 'ja,ko;q=0.9'
-            }
+            headers: defaultHeaders
           })
           
-          if (resp2.url) {
-            addLog(`최종 URL: ${resp2.url.substring(0, 60)}...`)
-            collectedUrls.push(resp2.url)
+          // 또 consent 페이지면 다시 우회
+          let finalUrl = resp2.url
+          if (finalUrl && finalUrl.includes('consent.google')) {
+            const continueUrl2 = extractContinueUrl(finalUrl)
+            if (continueUrl2) {
+              addLog(`2차 동의 우회...`)
+              finalUrl = continueUrl2
+              try {
+                const resp3 = await CapacitorHttp.get({
+                  url: continueUrl2,
+                  headers: defaultHeaders
+                })
+                if (resp3.url) finalUrl = resp3.url
+                if (resp3.data) {
+                  const html3 = typeof resp3.data === 'string' ? resp3.data : JSON.stringify(resp3.data)
+                  collectedHtml.push(html3)
+                }
+              } catch {}
+            }
+          }
+          
+          if (finalUrl) {
+            addLog(`최종 URL: ${finalUrl.substring(0, 60)}...`)
+            collectedUrls.push(finalUrl)
           }
           if (resp2.data) {
             const html2 = typeof resp2.data === 'string' ? resp2.data : JSON.stringify(resp2.data)
@@ -625,10 +705,52 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       if (unshortResp.data) {
         const data = typeof unshortResp.data === 'string' ? JSON.parse(unshortResp.data) : unshortResp.data
         if (data.resolved_url) {
-          addLog(`언쇼트 결과: ${data.resolved_url.substring(0, 50)}...`)
-          const coords = extractCoordsFromText(data.resolved_url, addLog)
+          let resolvedUrl = data.resolved_url
+          addLog(`언쇼트 결과: ${resolvedUrl.substring(0, 50)}...`)
+          
+          // consent.google.com이면 continue URL 추출
+          if (resolvedUrl.includes('consent.google')) {
+            addLog('⚠️ 언쇼트 결과가 동의 페이지, continue 추출...')
+            const continueUrl = extractContinueUrl(resolvedUrl)
+            if (continueUrl) {
+              resolvedUrl = continueUrl
+              addLog(`continue URL: ${resolvedUrl.substring(0, 50)}...`)
+              
+              // continue URL로 다시 요청
+              try {
+                const followResp = await CapacitorHttp.get({
+                  url: resolvedUrl,
+                  headers: defaultHeaders
+                })
+                
+                if (followResp.url && !followResp.url.includes('consent')) {
+                  addLog(`최종 URL: ${followResp.url.substring(0, 50)}...`)
+                  
+                  // URL에서 좌표 추출
+                  const coords = extractCoordsFromText(followResp.url, addLog)
+                  if (coords) {
+                    return { ...coords, url: followResp.url }
+                  }
+                  
+                  // HTML에서 좌표 추출
+                  if (followResp.data) {
+                    const html = typeof followResp.data === 'string' ? followResp.data : JSON.stringify(followResp.data)
+                    addLog(`HTML 크기: ${html.length} bytes`)
+                    const htmlCoords = extractCoordsFromText(html, addLog)
+                    if (htmlCoords) {
+                      return { ...htmlCoords, url: followResp.url }
+                    }
+                  }
+                }
+              } catch (e) {
+                addLog(`continue 요청 실패: ${e.message}`)
+              }
+            }
+          }
+          
+          const coords = extractCoordsFromText(resolvedUrl, addLog)
           if (coords) {
-            return { ...coords, url: data.resolved_url }
+            return { ...coords, url: resolvedUrl }
           }
         }
       }
