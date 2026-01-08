@@ -4,6 +4,10 @@ import { categories, cities } from '../data/restaurants'
 import { getRestaurants, saveRestaurants, addRestaurant, deleteRestaurant, updateRestaurant } from '../utils/restaurantStorage'
 import CustomSelect from './CustomSelect'
 
+// Gemini API 설정
+const GEMINI_API_KEY = 'AIzaSyC0Y51jfXN91Ueel4hm7vYl0uLyytghtDI'
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent'
+
 function Restaurant({ onBack }) {
   const [restaurants, setRestaurants] = useState([])
   const [selectedCity, setSelectedCity] = useState('all')
@@ -545,6 +549,81 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     
     log(`좌표 찾기 실패 (숫자 ${allNums.length}개 중 일본 범위 없음)`)
     return null
+  }
+
+  // 🤖 AI로 장소 정보 파싱 (Gemini API)
+  const parseWithAI = async (rawText, log = () => {}) => {
+    log('🤖 AI 파싱 시작...')
+    
+    const prompt = `다음은 구글맵에서 가져온 일본 음식점 정보입니다. 이 텍스트를 분석해서 JSON 형식으로 반환해주세요.
+
+입력 텍스트:
+"${rawText}"
+
+다음 형식의 JSON만 반환해주세요 (다른 설명 없이 JSON만):
+{
+  "name": "가게 이름 (한글 또는 영문)",
+  "nameJp": "가게 이름 (일본어, 있으면)",
+  "address": "주소 (일본어 주소)",
+  "city": "도시 코드 (tokyo/osaka/kyoto/fukuoka/sapporo/nagoya/okinawa 중 하나)",
+  "category": "카테고리 코드 (ramen/sushi/yakiniku/katsu/kushikatsu/kaiseki/izakaya/cafe/tempura/udon/soba/curry/other 중 하나)"
+}
+
+주의사항:
+- 가게 이름과 주소를 정확히 분리해주세요
+- 주소에서 "일본" 또는 "Japan"은 제거해주세요
+- 도시는 주소에서 파악해주세요 (福岡/Fukuoka=fukuoka, 東京/Tokyo=tokyo 등)
+- 카테고리는 가게 이름에서 음식 종류를 파악해주세요 (라멘, 텐푸라, 야키니쿠 등)
+- 정보를 알 수 없으면 null로 설정해주세요`
+
+    try {
+      const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.1,
+            maxOutputTokens: 500
+          }
+        })
+      })
+      
+      if (!response.ok) {
+        log(`❌ AI API 오류: ${response.status}`)
+        return null
+      }
+      
+      const data = await response.json()
+      const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text
+      
+      if (!aiText) {
+        log('❌ AI 응답 없음')
+        return null
+      }
+      
+      log(`AI 응답: ${aiText.substring(0, 100)}...`)
+      
+      // JSON 추출 (```json ... ``` 형태 처리)
+      let jsonStr = aiText
+      const jsonMatch = aiText.match(/```(?:json)?\s*([\s\S]*?)```/)
+      if (jsonMatch) {
+        jsonStr = jsonMatch[1]
+      }
+      
+      // JSON 파싱
+      const parsed = JSON.parse(jsonStr.trim())
+      log(`✅ AI 파싱 성공!`)
+      log(`📛 이름: ${parsed.name}`)
+      log(`📍 주소: ${parsed.address}`)
+      log(`🏙️ 도시: ${parsed.city}`)
+      log(`🍽️ 카테고리: ${parsed.category}`)
+      
+      return parsed
+    } catch (e) {
+      log(`❌ AI 파싱 오류: ${e.message}`)
+      return null
+    }
   }
 
   // HTML에서 장소 정보 추출 (이름, 주소, 평점 등)
@@ -1165,6 +1244,33 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       const updates = {
         lat: result.lat,
         lng: result.lng
+      }
+      
+      // 🤖 AI 파싱 시도 (이름에 주소가 섞여있거나 도시/카테고리가 없으면)
+      const rawName = result.name || result.nameJp || ''
+      const needsAIParsing = (
+        !result.city || 
+        !result.category || 
+        rawName.includes('〒') || 
+        rawName.includes('Chome') ||
+        rawName.length > 50
+      )
+      
+      if (needsAIParsing && rawName) {
+        addLog('🤖 AI 파싱 시도...')
+        try {
+          const aiResult = await parseWithAI(rawName, addLog)
+          if (aiResult) {
+            // AI 결과로 덮어쓰기
+            if (aiResult.name) result.name = aiResult.name
+            if (aiResult.nameJp) result.nameJp = aiResult.nameJp
+            if (aiResult.address) result.address = aiResult.address
+            if (aiResult.city) result.city = aiResult.city
+            if (aiResult.category) result.category = aiResult.category
+          }
+        } catch (e) {
+          addLog(`AI 파싱 실패, 기존 결과 사용: ${e.message}`)
+        }
       }
       
       // 추출된 정보 적용 (비어있는 필드만)
