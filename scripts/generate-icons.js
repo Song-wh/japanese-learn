@@ -40,9 +40,19 @@ if (!existsSync(outputDir)) {
   mkdirSync(outputDir, { recursive: true });
 }
 
+// Android mipmap 폴더 경로와 사이즈
+const androidMipmaps = [
+  { folder: 'mipmap-mdpi', size: 48 },
+  { folder: 'mipmap-hdpi', size: 72 },
+  { folder: 'mipmap-xhdpi', size: 96 },
+  { folder: 'mipmap-xxhdpi', size: 144 },
+  { folder: 'mipmap-xxxhdpi', size: 192 },
+];
+
 async function generateIcons() {
   console.log('🎨 아이콘 생성 중...');
   
+  // PWA 아이콘 생성
   for (const size of sizes) {
     const outputPath = join(outputDir, `icon-${size}x${size}.png`);
     
@@ -54,7 +64,47 @@ async function generateIcons() {
     console.log(`  ✅ icon-${size}x${size}.png 생성 완료`);
   }
   
-  console.log('🎉 모든 아이콘 생성 완료!');
+  // Android 아이콘 생성
+  console.log('\n📱 Android 아이콘 생성 중...');
+  const androidResDir = join(__dirname, '../android/app/src/main/res');
+  
+  for (const { folder, size } of androidMipmaps) {
+    const mipmapDir = join(androidResDir, folder);
+    if (!existsSync(mipmapDir)) {
+      mkdirSync(mipmapDir, { recursive: true });
+    }
+    
+    // ic_launcher.png
+    await sharp(Buffer.from(svgContent))
+      .resize(size, size)
+      .png()
+      .toFile(join(mipmapDir, 'ic_launcher.png'));
+    
+    // ic_launcher_round.png (같은 이미지 사용)
+    await sharp(Buffer.from(svgContent))
+      .resize(size, size)
+      .png()
+      .toFile(join(mipmapDir, 'ic_launcher_round.png'));
+    
+    // ic_launcher_foreground.png (adaptive icon용, 더 크게)
+    const foregroundSize = Math.round(size * 1.5);
+    await sharp(Buffer.from(svgContent))
+      .resize(foregroundSize, foregroundSize)
+      .extend({
+        top: Math.round((foregroundSize * 0.25)),
+        bottom: Math.round((foregroundSize * 0.25)),
+        left: Math.round((foregroundSize * 0.25)),
+        right: Math.round((foregroundSize * 0.25)),
+        background: { r: 0, g: 0, b: 0, alpha: 0 }
+      })
+      .resize(size, size)
+      .png()
+      .toFile(join(mipmapDir, 'ic_launcher_foreground.png'));
+    
+    console.log(`  ✅ ${folder} 아이콘 생성 완료`);
+  }
+  
+  console.log('\n🎉 모든 아이콘 생성 완료!');
 }
 
 generateIcons().catch(console.error);

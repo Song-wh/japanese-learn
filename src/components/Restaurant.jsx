@@ -1,16 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
+import { CapacitorHttp } from '@capacitor/core'
 import { categories, cities } from '../data/restaurants'
-
-// CapacitorHttp를 동적으로 로드
-const getCapacitorHttp = async () => {
-  try {
-    const { CapacitorHttp } = await import('@capacitor/core')
-    return CapacitorHttp
-  } catch (e) {
-    console.log('CapacitorHttp not available')
-    return null
-  }
-}
 import { getRestaurants, saveRestaurants, addRestaurant, deleteRestaurant, updateRestaurant } from '../utils/restaurantStorage'
 import CustomSelect from './CustomSelect'
 
@@ -800,9 +790,6 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       'Accept-Language': 'ja-JP,ja;q=0.9,ko;q=0.8',
       'Cookie': 'CONSENT=YES+cb; SOCS=CAISHAgCEhJnd3NfMjAyNDA1MDItMF9SQzEaAmtvIAEaBgiA_LmyBg'
     }
-    
-    // CapacitorHttp 동적 로드
-    const CapacitorHttp = await getCapacitorHttp()
     
     // 방법 1: Capacitor HTTP로 리다이렉트 따라가기
     if (CapacitorHttp) {
