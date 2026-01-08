@@ -421,6 +421,8 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [urlInput, setUrlInput] = useState('')
   const [parseError, setParseError] = useState('')
+  const [coordInput, setCoordInput] = useState('') // 좌표 직접 입력
+  const [inputMethod, setInputMethod] = useState('coord') // 'url' or 'coord'
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -683,6 +685,40 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
     window.open(urlInput, '_blank')
   }
 
+  // 좌표 직접 파싱 (예: "35.6762, 139.6503" 또는 "35.6762 139.6503")
+  const handleParseCoord = () => {
+    setParseError('')
+    
+    // 다양한 형식 지원
+    // "35.6762, 139.6503", "35.6762,139.6503", "35.6762 139.6503"
+    const cleanInput = coordInput.trim()
+    
+    // 패턴 매칭
+    const patterns = [
+      /(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)/,  // 콤마로 구분
+      /(-?\d+\.?\d*)\s+(-?\d+\.?\d*)/,       // 공백으로 구분
+    ]
+    
+    for (const pattern of patterns) {
+      const match = cleanInput.match(pattern)
+      if (match) {
+        const lat = parseFloat(match[1])
+        const lng = parseFloat(match[2])
+        
+        // 유효 범위 체크
+        if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          setForm(prev => ({ ...prev, lat, lng }))
+          setSearchMode(false)
+          setCoordInput('')
+          alert(`✅ 좌표를 저장했습니다!\n위도: ${lat}\n경도: ${lng}`)
+          return
+        }
+      }
+    }
+    
+    setParseError('좌표 형식이 올바르지 않습니다. 예: 35.6762, 139.6503')
+  }
+
   const categoryEmojis = {
     ramen: '🍜', sushi: '🍣', yakiniku: '🥓', katsu: '🥩',
     kushikatsu: '🍢', kaiseki: '🍱', izakaya: '🍶', cafe: '🍰', other: '🍴'
@@ -699,135 +735,231 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
         {/* 구글맵 검색 모드 */}
         {searchMode ? (
           <div className="search-mode">
-            <div className="search-instructions">
-              <h3>📍 구글맵에서 장소 찾기</h3>
-              <ol>
-                <li>아래 검색어를 입력하고 "구글맵 열기" 클릭</li>
-                <li>구글맵에서 원하는 장소 선택</li>
-                <li><strong>⚠️ 브라우저 주소창에서 URL 복사</strong></li>
-                <li>복사한 링크를 아래에 붙여넣기</li>
-              </ol>
-              <div style={{ 
-                marginTop: '0.8rem', 
-                padding: '0.6rem 0.8rem',
-                background: 'rgba(255,100,100,0.15)',
-                borderRadius: '8px',
-                fontSize: '0.8rem',
-                color: '#ffaaaa',
-                border: '1px solid rgba(255,100,100,0.3)'
-              }}>
-                <strong>❌ 주의:</strong> "공유 → 링크 복사"로 하면 안됩니다!<br/>
-                <strong>✅ 올바른 방법:</strong> 브라우저 <strong>주소창</strong>에서 직접 복사
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label>🔍 검색어 입력</label>
-              <div className="form-row">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="예: 이치란 라멘 도쿄"
-                  style={{ flex: 1 }}
-                />
-              </div>
-              <button 
+            {/* 탭 선택 */}
+            <div style={{
+              display: 'flex',
+              marginBottom: '1rem',
+              borderRadius: '8px',
+              overflow: 'hidden',
+              border: '1px solid rgba(255,255,255,0.2)'
+            }}>
+              <button
                 type="button"
-                className="save-btn"
-                onClick={openGoogleMapsSearch}
-                style={{ width: '100%', marginTop: '0.8rem' }}
+                onClick={() => setInputMethod('coord')}
+                style={{
+                  flex: 1,
+                  padding: '0.8rem',
+                  border: 'none',
+                  background: inputMethod === 'coord' ? 'var(--primary)' : 'rgba(255,255,255,0.1)',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontWeight: inputMethod === 'coord' ? 'bold' : 'normal'
+                }}
               >
-                🗺️ 구글맵에서 검색
+                📍 좌표 입력 (추천)
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputMethod('url')}
+                style={{
+                  flex: 1,
+                  padding: '0.8rem',
+                  border: 'none',
+                  background: inputMethod === 'url' ? 'var(--primary)' : 'rgba(255,255,255,0.1)',
+                  color: 'white',
+                  cursor: 'pointer',
+                  fontWeight: inputMethod === 'url' ? 'bold' : 'normal'
+                }}
+              >
+                🔗 URL 입력
               </button>
             </div>
 
-            <div className="form-group">
-              <label>📋 구글맵 URL 붙여넣기</label>
-              <textarea
-                value={urlInput}
-                onChange={e => {
-                  setUrlInput(e.target.value)
-                  setParseError('')
-                }}
-                placeholder="구글맵 주소창에서 복사한 URL 붙여넣기 (예: https://www.google.com/maps/place/...)"
-                rows={4}
-              />
-              {isExpanding && (
-                <p style={{ color: 'var(--primary)', marginTop: '0.5rem', textAlign: 'center' }}>
-                  ⏳ 단축 URL 확장 중...
-                </p>
-              )}
-              
-              {/* 디버그 로그 표시 */}
-              {debugLog.length > 0 && (
+            {/* 좌표 직접 입력 모드 */}
+            {inputMethod === 'coord' && (
+              <>
                 <div style={{
-                  marginTop: '0.5rem',
-                  padding: '0.5rem',
-                  background: '#1a1a2e',
-                  borderRadius: '6px',
-                  fontSize: '0.7rem',
-                  fontFamily: 'monospace',
-                  maxHeight: '150px',
-                  overflow: 'auto',
-                  color: '#0f0'
+                  padding: '1rem',
+                  background: 'rgba(100, 200, 100, 0.15)',
+                  borderRadius: '10px',
+                  marginBottom: '1rem',
+                  border: '1px solid rgba(100, 200, 100, 0.3)'
                 }}>
-                  <div style={{ marginBottom: '0.3rem', color: '#888' }}>📋 디버그 로그:</div>
-                  {debugLog.map((log, i) => (
-                    <div key={i} style={{ color: log.includes('❌') || log.includes('오류') ? '#f66' : log.includes('✅') ? '#6f6' : '#aaa' }}>
-                      {log}
-                    </div>
-                  ))}
+                  <h3 style={{ margin: '0 0 0.8rem', color: '#90ee90' }}>📍 좌표 가져오는 법</h3>
+                  <ol style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                    <li>구글맵 앱에서 <strong>장소를 길게 터치</strong></li>
+                    <li>화면 아래에 <strong>좌표가 표시됨</strong> (예: 35.6762, 139.6503)</li>
+                    <li>좌표를 터치하면 <strong>자동 복사</strong>됨</li>
+                    <li>아래에 <strong>붙여넣기</strong></li>
+                  </ol>
                 </div>
-              )}
-              {parseError && (
-                <div className="error-message" style={{ marginTop: '0.5rem' }}>
-                  <p style={{ margin: 0 }}>⚠️ {parseError}</p>
-                  {(urlInput.includes('maps.app.goo.gl') || urlInput.includes('goo.gl/maps')) && (
-                    <button 
-                      type="button"
-                      onClick={openShortUrl}
-                      style={{
-                        marginTop: '0.5rem',
-                        padding: '0.5rem 1rem',
-                        background: 'var(--primary)',
-                        border: 'none',
-                        borderRadius: '6px',
-                        color: 'white',
-                        cursor: 'pointer',
-                        fontSize: '0.85rem'
-                      }}
-                    >
-                      🔗 구글맵에서 열기 → 주소창 복사
-                    </button>
+
+                <div className="form-group">
+                  <label>📋 좌표 붙여넣기</label>
+                  <input
+                    type="text"
+                    value={coordInput}
+                    onChange={e => {
+                      setCoordInput(e.target.value)
+                      setParseError('')
+                    }}
+                    placeholder="예: 35.6762, 139.6503"
+                    style={{ fontSize: '1.1rem', padding: '1rem', textAlign: 'center' }}
+                  />
+                  {parseError && (
+                    <p style={{ color: '#ff6b6b', marginTop: '0.5rem', fontSize: '0.85rem' }}>
+                      ⚠️ {parseError}
+                    </p>
                   )}
-                  <div style={{
-                    marginTop: '0.8rem',
-                    padding: '0.6rem',
-                    background: 'rgba(100, 200, 255, 0.1)',
-                    borderRadius: '6px',
-                    fontSize: '0.75rem',
-                    color: '#aaddff'
+                </div>
+
+                <div className="form-actions">
+                  <button type="button" className="cancel-btn" onClick={() => setSearchMode(false)}>
+                    ← 돌아가기
+                  </button>
+                  <button 
+                    type="button" 
+                    className="save-btn"
+                    onClick={handleParseCoord}
+                    disabled={!coordInput}
+                  >
+                    ✓ 좌표 저장
+                  </button>
+                </div>
+
+                <div style={{
+                  marginTop: '1rem',
+                  padding: '0.8rem',
+                  background: 'rgba(255,255,255,0.05)',
+                  borderRadius: '8px',
+                  fontSize: '0.8rem',
+                  color: '#888'
+                }}>
+                  💡 <strong>팁:</strong> 구글맵 검색도 가능해요!
+                  <button 
+                    type="button"
+                    onClick={openGoogleMapsSearch}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      marginTop: '0.5rem',
+                      padding: '0.6rem',
+                      background: 'rgba(255,255,255,0.1)',
+                      border: '1px solid rgba(255,255,255,0.2)',
+                      borderRadius: '6px',
+                      color: 'white',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    🗺️ 구글맵 열기
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* URL 입력 모드 */}
+            {inputMethod === 'url' && (
+              <>
+                <div className="search-instructions">
+                  <h3>🔗 URL로 좌표 가져오기</h3>
+                  <div style={{ 
+                    marginTop: '0.5rem', 
+                    padding: '0.6rem 0.8rem',
+                    background: 'rgba(255,100,100,0.15)',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem',
+                    color: '#ffaaaa',
+                    border: '1px solid rgba(255,100,100,0.3)'
                   }}>
-                    💡 <strong>다른 방법:</strong> 구글맵에서 장소를 <strong>길게 누르면</strong> 좌표가 표시됩니다. 그 좌표를 아래 위도/경도에 직접 입력하세요!
+                    <strong>⚠️ 중요:</strong> "공유 → 링크 복사" 하면 안됩니다!<br/>
+                    <strong>✅ 올바른 방법:</strong> 브라우저 <strong>주소창</strong>에서 직접 복사
                   </div>
                 </div>
-              )}
-            </div>
 
-            <div className="form-actions">
-              <button type="button" className="cancel-btn" onClick={() => setSearchMode(false)}>
-                ← 돌아가기
-              </button>
-              <button 
-                type="button" 
-                className="save-btn"
-                onClick={handleParseUrl}
-                disabled={!urlInput}
-              >
-                ✓ 좌표 가져오기
-              </button>
-            </div>
+                <div className="form-group">
+                  <label>🔍 검색어 입력</label>
+                  <div className="form-row">
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="예: 이치란 라멘 도쿄"
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                  <button 
+                    type="button"
+                    className="save-btn"
+                    onClick={openGoogleMapsSearch}
+                    style={{ width: '100%', marginTop: '0.8rem' }}
+                  >
+                    🗺️ 구글맵에서 검색
+                  </button>
+                </div>
+
+                <div className="form-group">
+                  <label>📋 구글맵 URL 붙여넣기</label>
+                  <textarea
+                    value={urlInput}
+                    onChange={e => {
+                      setUrlInput(e.target.value)
+                      setParseError('')
+                    }}
+                    placeholder="구글맵 주소창에서 복사한 URL 붙여넣기"
+                    rows={3}
+                  />
+                  {isExpanding && (
+                    <p style={{ color: 'var(--primary)', marginTop: '0.5rem', textAlign: 'center' }}>
+                      ⏳ URL 분석 중...
+                    </p>
+                  )}
+                  
+                  {/* 디버그 로그 */}
+                  {debugLog.length > 0 && (
+                    <div style={{
+                      marginTop: '0.5rem',
+                      padding: '0.5rem',
+                      background: '#1a1a2e',
+                      borderRadius: '6px',
+                      fontSize: '0.65rem',
+                      fontFamily: 'monospace',
+                      maxHeight: '100px',
+                      overflow: 'auto',
+                      color: '#0f0'
+                    }}>
+                      {debugLog.slice(-5).map((log, i) => (
+                        <div key={i} style={{ color: log.includes('❌') || log.includes('오류') ? '#f66' : log.includes('✅') ? '#6f6' : '#aaa' }}>
+                          {log}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {parseError && (
+                    <div className="error-message" style={{ marginTop: '0.5rem' }}>
+                      <p style={{ margin: 0, color: '#ff6b6b' }}>⚠️ {parseError}</p>
+                      <p style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: '#aaddff' }}>
+                        💡 <strong>추천:</strong> 위의 "좌표 입력" 탭에서 직접 입력하세요!
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="form-actions">
+                  <button type="button" className="cancel-btn" onClick={() => setSearchMode(false)}>
+                    ← 돌아가기
+                  </button>
+                  <button 
+                    type="button" 
+                    className="save-btn"
+                    onClick={handleParseUrl}
+                    disabled={!urlInput}
+                  >
+                    ✓ 좌표 가져오기
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           /* 일반 폼 모드 */
