@@ -463,15 +463,15 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       { regex: /@(-?\d+\.\d{4,}),(-?\d+\.\d{4,})/, name: '@lat,lng' },
       { regex: /!3d(-?\d+\.\d{4,})!4d(-?\d+\.\d{4,})/, name: '!3d!4d', swap: false },
       { regex: /!4d(-?\d+\.\d{4,})!3d(-?\d+\.\d{4,})/, name: '!4d!3d', swap: true },
-      { regex: /"lat":?\s*(-?\d+\.\d{4,}).*?"lng":?\s*(-?\d+\.\d{4,})/, name: 'lat/lng json' },
-      { regex: /\\"lat\\":(-?\d+\.\d{4,}),\\"lng\\":(-?\d+\.\d{4,})/, name: 'escaped lat/lng' },
-      { regex: /center=(-?\d+\.\d{4,})%2C(-?\d+\.\d{4,})/, name: 'center=' },
-      { regex: /ll=(-?\d+\.\d{4,}),(-?\d+\.\d{4,})/, name: 'll=' },
-      { regex: /\[null,null,(-?\d+\.\d{4,}),(-?\d+\.\d{4,})\]/, name: '[null,null,lat,lng]' },
-      { regex: /\[(-?\d+\.\d{5,}),(-?\d+\.\d{5,})\]/, name: '[lat,lng]' },
-      { regex: /,(-?\d+\.\d{6,}),(-?\d+\.\d{6,}),/, name: ',lat,lng,' },
-      { regex: /"(-?\d{2}\.\d{5,})","(-?\d{2,3}\.\d{5,})"/, name: '"lat","lng"' },
-      { regex: /\\u0022(-?\d{2}\.\d{5,})\\u0022.*?\\u0022(-?\d{2,3}\.\d{5,})\\u0022/, name: 'unicode' },
+      { regex: /"lat":?\s*(-?\d+\.\d{3,}).*?"lng":?\s*(-?\d+\.\d{3,})/, name: 'lat/lng json' },
+      { regex: /\\"lat\\":(-?\d+\.\d{3,}),\\"lng\\":(-?\d+\.\d{3,})/, name: 'escaped lat/lng' },
+      { regex: /center=(-?\d+\.\d{3,})%2C(-?\d+\.\d{3,})/, name: 'center=' },
+      { regex: /ll=(-?\d+\.\d{3,}),(-?\d+\.\d{3,})/, name: 'll=' },
+      { regex: /\[null,null,(-?\d+\.\d{3,}),(-?\d+\.\d{3,})\]/, name: '[null,null,lat,lng]' },
+      { regex: /\[(-?\d+\.\d{4,}),(-?\d+\.\d{4,})\]/, name: '[lat,lng]' },
+      { regex: /,(-?\d+\.\d{5,}),(-?\d+\.\d{5,}),/, name: ',lat,lng,' },
+      { regex: /"(-?\d{2}\.\d{4,})","(-?\d{2,3}\.\d{4,})"/, name: '"lat","lng"' },
+      { regex: /\\u0022(-?\d{2}\.\d{4,})\\u0022.*?\\u0022(-?\d{2,3}\.\d{4,})\\u0022/, name: 'unicode' },
     ]
     
     for (const { regex, name, swap } of patterns) {
@@ -489,16 +489,61 @@ function AddRestaurantModal({ restaurant, onSave, onClose }) {
       }
     }
     
-    // 마지막 시도: 연속된 숫자쌍에서 좌표 찾기
-    const allNums = [...text.matchAll(/(\d{2,3}\.\d{5,})/g)].map(m => parseFloat(m[1]))
-    for (let i = 0; i < allNums.length - 1; i++) {
-      const a = allNums[i], b = allNums[i + 1]
-      if (a >= 20 && a <= 50 && b >= 100 && b <= 160) {
-        log(`✅ 숫자쌍에서 발견: ${a}, ${b}`)
-        return { lat: a, lng: b }
+    // 구글맵 특수 패턴: null,null,lat,lng 또는 [[lat,lng]] 등
+    const specialPatterns = [
+      /null,null,(\d{2}\.\d{4,}),(\d{2,3}\.\d{4,})/g,
+      /\[(\d{2}\.\d{4,}),(\d{2,3}\.\d{4,})\]/g,
+      /,(\d{2}\.\d{5,}),(\d{2,3}\.\d{5,})/g,
+    ]
+    
+    for (const pattern of specialPatterns) {
+      const matches = [...text.matchAll(pattern)]
+      for (const match of matches) {
+        const lat = parseFloat(match[1])
+        const lng = parseFloat(match[2])
+        if (lat >= 24 && lat <= 46 && lng >= 122 && lng <= 154) {
+          log(`✅ 특수패턴에서 발견: ${lat}, ${lng}`)
+          return { lat, lng }
+        }
       }
     }
     
+    // 마지막 시도: 모든 소수점 숫자에서 좌표 찾기 (더 공격적)
+    // 3자리 이상 소수점을 가진 모든 숫자
+    const allNums = [...text.matchAll(/(\d{2,3}\.\d{3,})/g)].map(m => parseFloat(m[1]))
+    log(`숫자 ${allNums.length}개 발견, 좌표 범위 검색...`)
+    
+    // 일본 좌표 범위: 위도 24-46, 경도 122-154
+    for (let i = 0; i < allNums.length - 1; i++) {
+      const a = allNums[i], b = allNums[i + 1]
+      // 위도, 경도 순서
+      if (a >= 24 && a <= 46 && b >= 122 && b <= 154) {
+        log(`✅ 숫자쌍에서 발견: ${a}, ${b}`)
+        return { lat: a, lng: b }
+      }
+      // 경도, 위도 순서 (반대)
+      if (b >= 24 && b <= 46 && a >= 122 && a <= 154) {
+        log(`✅ 숫자쌍(역순)에서 발견: ${b}, ${a}`)
+        return { lat: b, lng: a }
+      }
+    }
+    
+    // 더 공격적: 가까운 숫자 쌍 (최대 5개 간격)
+    for (let i = 0; i < allNums.length - 1; i++) {
+      for (let j = i + 1; j < Math.min(i + 6, allNums.length); j++) {
+        const a = allNums[i], b = allNums[j]
+        if (a >= 24 && a <= 46 && b >= 122 && b <= 154) {
+          log(`✅ 근접쌍에서 발견: ${a}, ${b} (간격: ${j-i})`)
+          return { lat: a, lng: b }
+        }
+        if (b >= 24 && b <= 46 && a >= 122 && a <= 154) {
+          log(`✅ 근접쌍(역순)에서 발견: ${b}, ${a} (간격: ${j-i})`)
+          return { lat: b, lng: a }
+        }
+      }
+    }
+    
+    log(`좌표 찾기 실패 (숫자 ${allNums.length}개 중 일본 범위 없음)`)
     return null
   }
 
